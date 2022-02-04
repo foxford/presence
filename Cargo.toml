@@ -8,3 +8,6 @@ anyhow = "1.0"
 dotenv = "0.15.0"
 sqlx = { version = "0.5", features = [ "runtime-tokio-native-tls" , "postgres", "offline", "uuid" ] }
 tokio = { version = "1.16", features = ["full"] }
+
+[dev-dependencies]
+testcontainers = "0.12"
