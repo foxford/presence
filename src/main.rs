@@ -1,7 +1,27 @@
+use ::tracing::info;
+use anyhow::Result;
+
+mod app;
+mod config;
+mod db;
 #[cfg(test)]
 mod test_helpers;
+mod tracing;
 
-fn main() {}
+#[tokio::main]
+async fn main() -> Result<()> {
+    dotenv::dotenv()?;
+
+    let _guard = tracing::init()?;
+
+    info!(
+        "Launching {}, version: {}",
+        env!("CARGO_PKG_NAME"),
+        env!("CARGO_PKG_VERSION")
+    );
+
+    app::run().await
+}
 
 #[cfg(test)]
 mod test {
