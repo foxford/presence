@@ -11,6 +11,8 @@ dotenv = "0.15.0"
 serde = "1.0"
 serde_derive = "1.0"
 sqlx = { version = "0.5", features = ["runtime-tokio-native-tls" , "postgres", "offline", "uuid"] }
+svc-error = { version = "0.3", features = ["sentry-extension", "sqlx"] }
+svc-utils = { version = "0.1", features = ["log-middleware"] }
 tokio = { version = "1.16", features = ["full"] }
 tracing = "0.1"
 tracing-appender = "0.2"

@@ -4,6 +4,7 @@ use anyhow::Result;
 mod app;
 mod config;
 mod db;
+mod state;
 #[cfg(test)]
 mod test_helpers;
 mod tracing;
@@ -20,7 +21,8 @@ async fn main() -> Result<()> {
         env!("CARGO_PKG_VERSION")
     );
 
-    app::run().await
+    let db = db::new_pool().await;
+    app::run(db).await
 }
 
 #[cfg(test)]
