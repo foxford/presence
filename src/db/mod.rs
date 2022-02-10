@@ -5,7 +5,7 @@ use std::time::Duration;
 const DEFAULT_POOL_SIZE: u32 = 5;
 const DEFAULT_POOL_IDLE_SIZE: u32 = 1;
 const DEFAULT_POOL_TIMEOUT: u64 = 5;
-const POOL_MAX_LIFETIME: u64 = 1800;
+const DEFAULT_POOL_MAX_LIFETIME: u64 = 1800;
 
 pub(crate) async fn new_pool() -> PgPool {
     let url = var("DATABASE_URL").expect("DATABASE_URL must be specified");
@@ -36,7 +36,7 @@ pub(crate) async fn new_pool() -> PgPool {
             val.parse::<u64>()
                 .expect("Error converting DATABASE_POOL_MAX_LIFETIME variable into u64")
         })
-        .unwrap_or(POOL_MAX_LIFETIME);
+        .unwrap_or(DEFAULT_POOL_MAX_LIFETIME);
 
     PgPoolOptions::new()
         .max_connections(size)

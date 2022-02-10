@@ -1,32 +1,25 @@
+use crate::state::State;
 use axum::extract::ws::{Message, WebSocket};
-use axum::extract::WebSocketUpgrade;
+use axum::extract::{Extension, WebSocketUpgrade};
 use axum::response::IntoResponse;
+use tracing::info;
 
-pub(crate) async fn ws_handler(ws: WebSocketUpgrade) -> impl IntoResponse {
-    println!("ws_handler called");
-    ws.on_upgrade(handle_socket)
+pub(crate) async fn ws_handler(ws: WebSocketUpgrade, state: Extension<State>) -> impl IntoResponse {
+    info!("An agent connected");
+    ws.on_upgrade(|socket| handle_ws_socket(socket, state))
 }
 
-pub(crate) async fn handle_socket(mut socket: WebSocket) {
+pub(crate) async fn handle_ws_socket(mut socket: WebSocket, _state: Extension<State>) {
     if let Some(msg) = socket.recv().await {
-        println!("New incoming request");
-
-        let msg = if let Ok(msg) = msg {
-            match msg {
-                Message::Close(_) => {
-                    println!("Client disconnected/1");
-                    return;
-                }
-                _ => msg,
+        match msg {
+            Ok(msg) => {
+                if let Message::Close(_) = msg {
+                    info!("An agent closed connection");
+                };
             }
-        } else {
-            println!("Client disconnected/2");
-            return;
-        };
-
-        if socket.send(msg).await.is_err() {
-            println!("Client disconnected/3");
-            return;
+            Err(_) => {
+                info!("An agent disconnected");
+            }
         }
     }
 }
