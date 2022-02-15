@@ -17,7 +17,7 @@ pub(crate) async fn run(db: PgPool) -> Result<()> {
     }
 
     let state = State::new(config.clone(), db);
-    let router = router::new(state);
+    let router = router::new(state, config.authn.clone());
 
     // For graceful shutdown
     let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();

@@ -1,10 +1,12 @@
 use serde_derive::Deserialize;
+use svc_authn::jose::ConfigMap as AuthnConfig;
 use svc_error::extension::sentry::Config as SentryConfig;
 
 #[derive(Clone, Debug, Deserialize)]
 pub(crate) struct Config {
     pub(crate) listener_address: String,
     pub(crate) sentry: Option<SentryConfig>,
+    pub(crate) authn: AuthnConfig,
 }
 
 pub(crate) fn load() -> Result<Config, config::ConfigError> {
