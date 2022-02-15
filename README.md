@@ -16,5 +16,5 @@ Create database and run migrations:
 
 ```shell
 $ sqlx database create
-$ sqlx migrate
+$ sqlx migrate run
 ```

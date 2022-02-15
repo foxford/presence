@@ -5,9 +5,22 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0"
+axum = { version = "0.3", features = ["ws"] }
+config = "0.11"
 dotenv = "0.15.0"
-sqlx = { version = "0.5", features = [ "runtime-tokio-native-tls" , "postgres", "offline", "uuid" ] }
+futures-util = "0.3"
+serde = "1.0"
+serde_derive = "1.0"
+signal-hook = "0.3"
+signal-hook-tokio = { version = "0.3", features = ["futures-v0_3"] }
+sqlx = { version = "0.5", features = ["runtime-tokio-native-tls" , "postgres", "offline", "uuid"] }
+svc-error = { version = "0.3", features = ["sentry-extension", "sqlx"] }
+svc-utils = { version = "0.1", features = ["log-middleware"] }
 tokio = { version = "1.16", features = ["full"] }
+tracing = "0.1"
+tracing-appender = "0.2"
+tracing-futures = "0.2"
+tracing-subscriber = { version = "0.3", features = ["json", "env-filter"] }
 
 [dev-dependencies]
 testcontainers = "0.12"
