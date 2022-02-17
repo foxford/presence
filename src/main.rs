@@ -11,6 +11,7 @@ mod tracing;
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    #[cfg(feature = "dotenv")]
     dotenv::dotenv()?;
 
     let _guard = tracing::init()?;

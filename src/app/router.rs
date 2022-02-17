@@ -1,4 +1,5 @@
-use crate::{app::ws, state::State};
+use crate::app::ws::handler;
+use crate::state::State;
 use axum::{
     routing::get,
     {AddExtensionLayer, Router},
@@ -20,5 +21,5 @@ fn api_router() -> Router {
 }
 
 fn ws_router() -> Router {
-    Router::new().route("/ws", get(ws::ws_handler))
+    Router::new().route("/ws", get(handler))
 }
