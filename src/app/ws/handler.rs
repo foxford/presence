@@ -1,4 +1,3 @@
-#![allow(unused_assignments)]
 use crate::app::ws::{ConnectFailure, ConnectRequest, Request, Response};
 use crate::state::State;
 use anyhow::Result;
@@ -15,7 +14,7 @@ use svc_agent::AgentId;
 use svc_authn::{
     jose::ConfigMap, token::jws_compact::extract::decode_jws_compact_with_config, AccountId,
 };
-use tokio::time::{interval, MissedTickBehavior};
+use tokio::time::{interval, timeout, MissedTickBehavior};
 use tracing::info;
 
 pub(crate) async fn handler(
@@ -29,113 +28,116 @@ pub(crate) async fn handler(
 async fn handle_socket(socket: WebSocket, authn: Arc<ConfigMap>, state: State) {
     let (mut sender, mut receiver) = socket.split();
 
-    // Markers
-    let mut authenticated = false;
-    let mut ping_sent = false;
-    let mut pong_received = false;
+    // Close connection if there is no messages for some time
+    let authn_timeout = timeout(
+        state.config().websocket.authentication_timeout,
+        receiver.next(),
+    )
+    .await;
 
-    // Intervals
+    // Authentication
+    match authn_timeout {
+        Ok(Some(result)) => match result {
+            Ok(msg) => match handle_authn_message(msg, authn) {
+                Ok(m) => {
+                    info!("Successful authentication");
+                    let _ = sender.send(Message::Text(m)).await;
+                }
+                Err(e) => {
+                    info!("Connection is closed (unsuccessful request)");
+                    let resp = make_response(e.into());
+                    let _ = sender.send(Message::Text(resp)).await;
+                    let _ = sender.close().await;
+                    return;
+                }
+            },
+            Err(e) => {
+                info!(error = %e, "An error occurred when receiving a message.");
+                return;
+            }
+        },
+        Ok(None) | Err(_) => {
+            info!("Connection is closed (authentication timeout exceeded)");
+            let _ = sender.close().await;
+            return;
+        }
+    }
+
+    let mut ping_sent = false;
+
+    // Ping/Pong intervals
     let mut ping_interval = interval(state.config().websocket.ping_interval);
     let mut pong_expiration_interval = interval(state.config().websocket.pong_expiration_interval);
-    let mut auth_timeout_interval = interval(state.config().websocket.authentication_timeout);
-
-    // Because immediately completes
-    auth_timeout_interval.tick().await;
 
     // In order not to hurry
-    pong_expiration_interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
+    ping_interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
+    pong_expiration_interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
 
     loop {
         tokio::select! {
-            // Get incoming messages from clients
+            // Get Pong/Close messages from client
             Some(result) = receiver.next() => {
                 match result {
-                    Ok(Message::Text(msg)) => match handle_request(msg, authn.clone()) {
-                        Ok(m) => {
-                            info!("Successful authentication");
-                            authenticated = true;
-                            let _ = sender.send(Message::Text(m)).await;
-                            continue; // Start sending pings
-                        }
-                        Err(e) => {
-                            info!("Connection is closed (unsuccessful request)");
-                            authenticated = false;
-                            let _ = sender.send(Message::Text(e)).await;
-                            let _ = sender.close().await;
-                            return;
-                        }
-                    },
                     Ok(Message::Pong(_)) => {
-                        pong_received = true;
                         info!("Pong received");
+                        ping_sent = false;
                     },
                     Ok(Message::Close(frame)) => {
                         match frame {
                             Some(f) => {
-                                info!(
-                                    "An agent closed connection (code = {}, reason = {})",
-                                    f.code, f.reason,
-                                );
+                                info!(code = %f.code, reason = %f.reason, "An agent closed connection");
                             }
-                            None => info!("An agent closed connection (no details)"),
+                            None => info!("An agent closed connection"),
                         }
                         return;
                     },
                     Err(e) => {
-                        info!("An error occurred when receiving a message. {}", e);
+                        info!(error = %e, "An error occurred when receiving a message.");
                         return;
                     },
                     _ => {
-                        // Ping/Binary messages - do nothing
+                        // Ping/Text/Binary messages - do nothing
                     }
                 }
             }
             // Ping authenticated clients with interval
-            _ = ping_interval.tick(), if authenticated => {
+            _ = ping_interval.tick() => {
                 if sender.send(Message::Ping(Vec::new())).await.is_err() {
                     info!("An agent disconnected (ping not sent)");
                     return;
                 }
                 info!("Ping sent");
                 ping_sent = true;
-                pong_received = false;
-                pong_expiration_interval.tick().await;
+                pong_expiration_interval.reset();
             }
             // Close connection if pong exceeded timeout
-            _ = pong_expiration_interval.tick(), if ping_sent => {
-                if !pong_received {
+            _ = pong_expiration_interval.tick() => {
+                if ping_sent {
                     info!("Connection is closed (pong timeout exceeded)");
                     let _ = sender.close().await;
                     return;
                 }
                 info!("Pong is OK");
-                ping_sent = false;
-            }
-            // Close connection if there is no authentication for a while
-            _ = auth_timeout_interval.tick(), if !authenticated => {
-                info!("Connection is closed (authentication timeout exceeded)");
-                let _ = sender.close().await;
-                return;
-            }
-            // Stream has terminated
-            else => {
-                return;
             }
         }
     }
 }
 
-fn handle_request(msg: String, authn: Arc<ConfigMap>) -> Result<String, String> {
-    let result = serde_json::from_str::<Request>(&msg);
+fn handle_authn_message(message: Message, authn: Arc<ConfigMap>) -> Result<String, ConnectFailure> {
+    let msg = match message {
+        Message::Text(msg) => msg,
+        _ => return Err(ConnectFailure::UnsupportedRequest),
+    };
 
+    let result = serde_json::from_str::<Request>(&msg);
     match result {
         Ok(Request::ConnectRequest(ConnectRequest { token, .. })) => {
             match get_agent_id_from_token(token, authn) {
                 Ok(_agent_id) => Ok(make_response(Response::ConnectSuccess)),
-                Err(_) => Err(make_response(ConnectFailure::Unauthenticated.into())),
+                Err(_) => Err(ConnectFailure::Unauthenticated),
             }
         }
-        Err(_) => Err(make_response(ConnectFailure::UnsupportedRequest.into())),
+        Err(_) => Err(ConnectFailure::UnsupportedRequest),
     }
 }
 
