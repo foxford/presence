@@ -6,6 +6,6 @@ algorithm = "ES256"
 key = "data/keys/svc.public_key.p8.der.sample"
 
 [websocket]
-ping_interval = 30
-pong_expiration_interval = 5
-authentication_timeout = 5
+ping_interval = "30s"
+pong_expiration_interval = "5s"
+authentication_timeout = "5s"

@@ -21,9 +21,9 @@ svc-utils = { version = "0.1", features = ["log-middleware", "authn-extractor"] 
 tokio = { version = "1.16", features = ["full"] }
 tracing = "0.1"
 tracing-appender = "0.2"
-tracing-futures = "0.2"
 tracing-subscriber = { version = "0.3", features = ["json", "env-filter"] }
 http = "0.2"
+humantime-serde = "1.0"
 
 # Optional dependencies
 dotenv = { version = "0.15.0", optional = true }

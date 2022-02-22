@@ -11,7 +11,6 @@ use axum::{
 };
 use futures_util::{SinkExt, StreamExt};
 use std::sync::Arc;
-use std::time::Duration;
 use svc_agent::AgentId;
 use svc_authn::{
     jose::ConfigMap, token::jws_compact::extract::decode_jws_compact_with_config, AccountId,
@@ -36,13 +35,9 @@ async fn handle_socket(socket: WebSocket, authn: Arc<ConfigMap>, state: State) {
     let mut pong_received = false;
 
     // Intervals
-    let mut ping_interval = interval(Duration::from_secs(state.config().websocket.ping_interval));
-    let mut pong_expiration_interval = interval(Duration::from_secs(
-        state.config().websocket.pong_expiration_interval,
-    ));
-    let mut auth_timeout_interval = interval(Duration::from_secs(
-        state.config().websocket.authentication_timeout,
-    ));
+    let mut ping_interval = interval(state.config().websocket.ping_interval);
+    let mut pong_expiration_interval = interval(state.config().websocket.pong_expiration_interval);
+    let mut auth_timeout_interval = interval(state.config().websocket.authentication_timeout);
 
     // Because immediately completes
     auth_timeout_interval.tick().await;

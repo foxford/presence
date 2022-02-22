@@ -22,7 +22,7 @@ pub(crate) async fn run(db: PgPool) -> Result<()> {
     // For graceful shutdown
     let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
     let server = tokio::spawn(
-        axum::Server::bind(&config.listener_address.parse()?)
+        axum::Server::bind(&config.listener_address)
             .serve(router.into_make_service())
             .with_graceful_shutdown(async {
                 shutdown_rx.await.ok();
