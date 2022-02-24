@@ -1,8 +1,6 @@
 use http::StatusCode;
 use serde_derive::{Deserialize, Serialize};
-use std::fmt::Debug;
 use svc_error::Error as SvcError;
-use thiserror::Error;
 
 pub(crate) use handler::handler;
 
@@ -25,15 +23,11 @@ pub(crate) struct ConnectRequest {
 #[serde(tag = "type", content = "payload", rename_all = "snake_case")]
 pub(crate) enum Response {
     ConnectSuccess,
-    ConnectError(SvcError),
+    ConnectFailure(SvcError),
 }
 
-#[derive(Error, Debug)]
-pub enum ConnectError {
-    #[error("Unsupported Request")]
+enum ConnectError {
     UnsupportedRequest,
-
-    #[error("Unauthenticated")]
     Unauthenticated,
     // TODO: ULMS-1745
     // AccessDenied,
@@ -44,21 +38,20 @@ impl From<ConnectError> for Response {
         let mut builder = SvcError::builder();
 
         builder = match f {
-            ConnectError::UnsupportedRequest => builder.status(StatusCode::UNPROCESSABLE_ENTITY),
-            ConnectError::Unauthenticated => builder.status(StatusCode::UNAUTHORIZED),
+            ConnectError::UnsupportedRequest => builder
+                .status(StatusCode::UNPROCESSABLE_ENTITY)
+                .kind("unsupported_request", "Unsupported Request"),
+            ConnectError::Unauthenticated => builder
+                .status(StatusCode::UNAUTHORIZED)
+                .kind("unauthenticated", "Unauthenticated"),
             // TODO: ULMS-1745
             // ConnectError::AccessDenied => builder
             //     .status(StatusCode::FORBIDDEN)
             //     .kind("access_denied", "Access Denied"),
         };
 
-        let title = format!("{f}");
-        let kind = title
-            .to_lowercase()
-            .replace(|c: char| !c.is_alphanumeric(), "_");
+        let error = builder.build();
 
-        let error = builder.kind(&kind, &title).build();
-
-        Response::ConnectError(error)
+        Response::ConnectFailure(error)
     }
 }
