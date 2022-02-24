@@ -1,6 +1,8 @@
 use http::StatusCode;
 use serde_derive::{Deserialize, Serialize};
+use std::fmt::Debug;
 use svc_error::Error as SvcError;
+use thiserror::Error;
 
 pub(crate) use handler::handler;
 
@@ -23,35 +25,40 @@ pub(crate) struct ConnectRequest {
 #[serde(tag = "type", content = "payload", rename_all = "snake_case")]
 pub(crate) enum Response {
     ConnectSuccess,
-    ConnectFailure(SvcError),
+    ConnectError(SvcError),
 }
 
-enum ConnectFailure {
+#[derive(Error, Debug)]
+pub enum ConnectError {
+    #[error("Unsupported Request")]
     UnsupportedRequest,
+
+    #[error("Unauthenticated")]
     Unauthenticated,
     // TODO: ULMS-1745
     // AccessDenied,
 }
 
-impl From<ConnectFailure> for Response {
-    fn from(f: ConnectFailure) -> Self {
+impl From<ConnectError> for Response {
+    fn from(f: ConnectError) -> Self {
         let mut builder = SvcError::builder();
 
         builder = match f {
-            ConnectFailure::UnsupportedRequest => builder
-                .status(StatusCode::UNPROCESSABLE_ENTITY)
-                .kind("unsupported_request", "Unsupported Request"),
-            ConnectFailure::Unauthenticated => builder
-                .status(StatusCode::UNAUTHORIZED)
-                .kind("unauthenticated", "Unauthenticated"),
+            ConnectError::UnsupportedRequest => builder.status(StatusCode::UNPROCESSABLE_ENTITY),
+            ConnectError::Unauthenticated => builder.status(StatusCode::UNAUTHORIZED),
             // TODO: ULMS-1745
-            // ConnectFailure::AccessDenied => builder
+            // ConnectError::AccessDenied => builder
             //     .status(StatusCode::FORBIDDEN)
             //     .kind("access_denied", "Access Denied"),
         };
 
-        let error = builder.build();
+        let title = format!("{f}");
+        let kind = title
+            .to_lowercase()
+            .replace(|c: char| !c.is_alphanumeric(), "_");
 
-        Response::ConnectFailure(error)
+        let error = builder.kind(&kind, &title).build();
+
+        Response::ConnectError(error)
     }
 }

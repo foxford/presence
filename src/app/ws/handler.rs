@@ -1,4 +1,4 @@
-use crate::app::ws::{ConnectFailure, ConnectRequest, Request, Response};
+use crate::app::ws::{ConnectError, ConnectRequest, Request, Response};
 use crate::state::State;
 use anyhow::Result;
 use axum::{
@@ -123,10 +123,10 @@ async fn handle_socket(socket: WebSocket, authn: Arc<ConfigMap>, state: State) {
     }
 }
 
-fn handle_authn_message(message: Message, authn: Arc<ConfigMap>) -> Result<String, ConnectFailure> {
+fn handle_authn_message(message: Message, authn: Arc<ConfigMap>) -> Result<String, ConnectError> {
     let msg = match message {
         Message::Text(msg) => msg,
-        _ => return Err(ConnectFailure::UnsupportedRequest),
+        _ => return Err(ConnectError::UnsupportedRequest),
     };
 
     let result = serde_json::from_str::<Request>(&msg);
@@ -134,10 +134,10 @@ fn handle_authn_message(message: Message, authn: Arc<ConfigMap>) -> Result<Strin
         Ok(Request::ConnectRequest(ConnectRequest { token, .. })) => {
             match get_agent_id_from_token(token, authn) {
                 Ok(_agent_id) => Ok(make_response(Response::ConnectSuccess)),
-                Err(_) => Err(ConnectFailure::Unauthenticated),
+                Err(_) => Err(ConnectError::Unauthenticated),
             }
         }
-        Err(_) => Err(ConnectFailure::UnsupportedRequest),
+        Err(_) => Err(ConnectError::UnsupportedRequest),
     }
 }
 
