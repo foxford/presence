@@ -90,6 +90,20 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
 
     let mut ping_sent = false;
 
+    let mut nats_rx = match state
+        .nats_client()
+        .subscribe(session_key.classroom_id)
+        .await
+        .map_err(|e| {
+            error!(error = ?e);
+            e
+        }) {
+        Err(_) => {
+            return;
+        }
+        Ok(rx) => rx,
+    };
+
     // Ping/Pong intervals
     let mut ping_interval = interval(state.config().websocket.ping_interval);
     let mut pong_expiration_interval = interval(state.config().websocket.pong_expiration_interval);
@@ -100,6 +114,18 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
 
     loop {
         tokio::select! {
+            Ok(msg) = nats_rx.recv() => {
+                match String::from_utf8(msg.data) {
+                    Ok(s) => {
+                        if let Err(e) = sender.send(Message::Text(s)).await {
+                            error!(error = ?e, "Failed to send notification");
+                        }
+                    },
+                    Err(e)=> {
+                        error!(error = ?e, "Conversion to str failed");
+                    }
+                }
+            }
             // Get Pong/Close messages from client
             Some(result) = receiver.next() => {
                 match result {

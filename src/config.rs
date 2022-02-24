@@ -14,6 +14,7 @@ pub struct Config {
     pub websocket: WebSocketConfig,
     pub authz: Authz,
     pub svc_audience: String,
+    pub nats: NatsConfig,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -26,6 +27,11 @@ pub struct WebSocketConfig {
     pub authentication_timeout: Duration,
     #[serde(with = "humantime_serde")]
     pub check_old_connection_interval: Duration,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct NatsConfig {
+    pub url: String,
 }
 
 pub fn load() -> Result<Config, config::ConfigError> {

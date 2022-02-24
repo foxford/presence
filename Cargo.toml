@@ -8,10 +8,12 @@ anyhow = "1.0"
 async-trait = "0.1"
 axum = { version = "0.5", features = ["ws"] }
 config = { version = "0.13", default-features = false, features = ["toml"] }
+crossbeam-channel = "0.5"
 dotenv = { version = "0.15", optional = true }
 futures-util = "0.3"
 http = "0.2"
 humantime-serde = "1.0"
+nats = "0.17"
 serde = "1.0"
 serde_derive = "1.0"
 serde_json = "1.0"
