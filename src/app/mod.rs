@@ -5,10 +5,12 @@ use signal_hook::consts::TERM_SIGNALS;
 use sqlx::PgPool;
 use tracing::{error, info};
 
+mod api;
+mod error;
 mod router;
 mod ws;
 
-pub(crate) async fn run(db: PgPool) -> Result<()> {
+pub async fn run(db: PgPool) -> Result<()> {
     let config = crate::config::load().context("Failed to load config")?;
     info!("App config: {:?}", config);
 

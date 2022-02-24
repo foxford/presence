@@ -2,12 +2,14 @@ use sqlx::{postgres::PgPoolOptions, PgPool};
 use std::env::var;
 use std::time::Duration;
 
+pub mod agent_session;
+
 const DEFAULT_POOL_SIZE: u32 = 5;
 const DEFAULT_POOL_IDLE_SIZE: u32 = 1;
 const DEFAULT_POOL_TIMEOUT: u64 = 5;
 const DEFAULT_POOL_MAX_LIFETIME: u64 = 1800;
 
-pub(crate) async fn new_pool() -> PgPool {
+pub async fn new_pool() -> PgPool {
     let url = var("DATABASE_URL").expect("DATABASE_URL must be specified");
 
     let size = var("DATABASE_POOL_SIZE")

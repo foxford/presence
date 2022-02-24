@@ -1,10 +1,11 @@
-#![allow(dead_code)]
 use crate::config::Config;
-use sqlx::PgPool;
+use anyhow::{Context, Result};
+use sqlx::pool::PoolConnection;
+use sqlx::{PgPool, Postgres};
 use std::sync::Arc;
 
 #[derive(Clone)]
-pub(crate) struct State {
+pub struct State {
     inner: Arc<InnerState>,
 }
 
@@ -14,17 +15,21 @@ struct InnerState {
 }
 
 impl State {
-    pub(crate) fn new(config: Config, db_pool: PgPool) -> Self {
+    pub fn new(config: Config, db_pool: PgPool) -> Self {
         Self {
             inner: Arc::new(InnerState { config, db_pool }),
         }
     }
 
-    pub(crate) fn config(&self) -> &Config {
+    pub fn config(&self) -> &Config {
         &self.inner.config
     }
 
-    pub(crate) fn db_pool(&self) -> &PgPool {
-        &self.inner.db_pool
+    pub async fn get_conn(&self) -> Result<PoolConnection<Postgres>> {
+        self.inner
+            .db_pool
+            .acquire()
+            .await
+            .context("Failed to acquire DB connection")
     }
 }

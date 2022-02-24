@@ -2,7 +2,7 @@ use anyhow::Result;
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_subscriber::{layer::SubscriberExt, EnvFilter};
 
-pub(crate) fn init() -> Result<WorkerGuard> {
+pub fn init() -> Result<WorkerGuard> {
     let (non_blocking, guard) = tracing_appender::non_blocking(std::io::stdout());
 
     let subscriber = tracing_subscriber::fmt::layer()

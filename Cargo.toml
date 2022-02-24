@@ -5,9 +5,9 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0"
-thiserror = "1.0"
 axum = { version = "0.4", features = ["ws"] }
 config = "0.11"
+dotenv = { version = "0.15.0", optional = true }
 futures-util = "0.3"
 http = "0.2"
 humantime-serde = "1.0"
@@ -20,14 +20,13 @@ sqlx = { version = "0.5", features = ["runtime-tokio-native-tls" , "postgres", "
 svc-agent = { version = "0.19", features = ["sqlx"] }
 svc-authn = { version = "0.7", features = ["jose", "sqlx"] }
 svc-error = { version = "0.4", features = ["sentry-extension", "sqlx", "serialize-status-code"] }
-svc-utils = { version = "0.1", features = ["log-middleware", "authn-extractor"] }
+svc-utils = { version = "0.2", features = ["log-middleware", "authn-extractor", "metrics-middleware"] }
+thiserror = "1.0"
 tokio = { version = "1.16", features = ["full"] }
 tracing = "0.1"
 tracing-appender = "0.2"
 tracing-subscriber = { version = "0.3", features = ["json", "env-filter"] }
-
-# Optional dependencies
-dotenv = { version = "0.15.0", optional = true }
+uuid = { version = "0.8", features = ["v4", "serde"] }
 
 [dev-dependencies]
 testcontainers = "0.12"

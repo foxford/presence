@@ -1,22 +1,22 @@
 use testcontainers::{clients, images, Container, Docker};
 
-pub(crate) struct PostgresHandle<'a> {
+pub struct PostgresHandle<'a> {
     pub connection_string: String,
     _container: Container<'a, clients::Cli, images::postgres::Postgres>,
 }
 
-pub(crate) struct TestContainer {
+pub struct TestContainer {
     docker: clients::Cli,
 }
 
 impl TestContainer {
-    pub(crate) fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             docker: clients::Cli::default(),
         }
     }
 
-    pub(crate) fn run_postgres(&self) -> PostgresHandle {
+    pub fn run_postgres(&self) -> PostgresHandle {
         let image = images::postgres::Postgres::default();
         let node = self.docker.run(image);
         let connection_string = format!(
