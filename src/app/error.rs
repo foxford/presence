@@ -11,9 +11,10 @@ struct ErrorKindProperties {
     status: StatusCode,
     kind: &'static str,
     title: &'static str,
-    is_notify_sentry: bool,
+    _is_notify_sentry: bool,
 }
 
+#[allow(clippy::enum_variant_names)]
 #[derive(Debug, Clone, Copy)]
 pub enum ErrorKind {
     DbConnAcquisitionFailed,
@@ -23,9 +24,9 @@ pub enum ErrorKind {
 }
 
 impl ErrorKind {
-    pub fn is_notify_sentry(self) -> bool {
+    pub fn _is_notify_sentry(self) -> bool {
         let properties: ErrorKindProperties = self.into();
-        properties.is_notify_sentry
+        properties._is_notify_sentry
     }
 }
 
@@ -43,25 +44,25 @@ impl From<ErrorKind> for ErrorKindProperties {
                 status: StatusCode::UNPROCESSABLE_ENTITY,
                 kind: "database_connection_acquisition_failed",
                 title: "Database connection acquisition failed",
-                is_notify_sentry: true,
+                _is_notify_sentry: true,
             },
             ErrorKind::DbQueryFailed => ErrorKindProperties {
                 status: StatusCode::UNPROCESSABLE_ENTITY,
                 kind: "database_query_failed",
                 title: "Database query failed",
-                is_notify_sentry: true,
+                _is_notify_sentry: true,
             },
             ErrorKind::SerializationFailed => ErrorKindProperties {
                 status: StatusCode::UNPROCESSABLE_ENTITY,
                 kind: "serialization_failed",
                 title: "Serialization failed",
-                is_notify_sentry: true,
+                _is_notify_sentry: true,
             },
             ErrorKind::ResponseBuildFailed => ErrorKindProperties {
                 status: StatusCode::UNPROCESSABLE_ENTITY,
                 kind: "response_build_failed",
                 title: "Response build failed",
-                is_notify_sentry: true,
+                _is_notify_sentry: true,
             },
         }
     }
@@ -93,8 +94,8 @@ impl Error {
             .build()
     }
 
-    pub fn notify_sentry(&self) {
-        if !self.kind.is_notify_sentry() {
+    pub fn _notify_sentry(&self) {
+        if !self.kind._is_notify_sentry() {
             return;
         }
 

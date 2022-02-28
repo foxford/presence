@@ -1,4 +1,4 @@
-use crate::state::State;
+use crate::state::AppState;
 use anyhow::{Context, Result};
 use futures_util::StreamExt;
 use signal_hook::consts::TERM_SIGNALS;
@@ -18,7 +18,7 @@ pub async fn run(db: PgPool) -> Result<()> {
         svc_error::extension::sentry::init(sentry_config);
     }
 
-    let state = State::new(config.clone(), db);
+    let state = AppState::new(config.clone(), db);
     let router = router::new(state, config.authn.clone());
 
     // For graceful shutdown

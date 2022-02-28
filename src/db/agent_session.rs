@@ -6,7 +6,7 @@ use svc_agent::AgentId;
 #[derive(Serialize)]
 #[serde(transparent)]
 pub struct Agent {
-    id: AgentId,
+    pub id: AgentId,
 }
 
 pub struct AgentList {
@@ -22,10 +22,11 @@ impl AgentList {
         sqlx::query_as!(
             Agent,
             r#"
-                SELECT
-                    agent_id AS "id!: AgentId"
-                FROM agent_session
-                WHERE classroom_id = $1::uuid
+            SELECT
+                agent_id AS "id: AgentId"
+            FROM agent_session
+            WHERE
+                classroom_id = $1::uuid
             "#,
             self.classroom_id as ClassroomId
         )

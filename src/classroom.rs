@@ -3,4 +3,4 @@ use uuid::Uuid;
 
 #[derive(Debug, Deserialize, Serialize, sqlx::Type, Copy, Clone)]
 #[sqlx(transparent)]
-pub struct ClassroomId(Uuid);
+pub struct ClassroomId(pub Uuid);

@@ -10,3 +10,6 @@ deps:
 
 udeps:
 	cargo +nightly udeps
+
+prepare:
+	cargo sqlx prepare -- --tests
