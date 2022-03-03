@@ -2,7 +2,7 @@ use crate::app::api::v1;
 use crate::app::ws;
 use crate::state::{AppState, State};
 use axum::{
-    routing::get,
+    routing::{get, options},
     {AddExtensionLayer, Router},
 };
 use std::sync::Arc;
@@ -23,7 +23,7 @@ fn api_router() -> Router {
         .metered_route("/api/v1/healthz", get(v1::healthz))
         .metered_route(
             "/api/v1/classrooms/:classroom_id/agents",
-            get(v1::classroom::list_agents::<AppState>),
+            options(v1::options).get(v1::classroom::list_agents::<AppState>),
         )
 }
 
