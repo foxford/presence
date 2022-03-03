@@ -26,7 +26,7 @@ fn api_router() -> Router {
         )
         .metered_route(
             "/api/v1/counters/agent",
-            post(v1::counter::count_agents::<AppState>),
+            .post(v1::counter::count_agents::<AppState>),
         )
         .layer(CorsLayer)
 }
