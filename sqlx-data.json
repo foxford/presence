@@ -156,5 +156,31 @@
       }
     },
     "query": "\n            INSERT INTO agent_session\n                (agent_id, classroom_id, replica_id, started_at)\n            VALUES ($1, $2, $3, $4)\n            RETURNING\n                agent_id AS \"agent_id: AgentId\",\n                classroom_id AS \"classroom_id: ClassroomId\",\n                replica_id,\n                started_at\n            "
+  },
+  "d1db9de6dfba864434650f7297309619fb16ce268dbb1246d1db01f84645bbfd": {
+    "describe": {
+      "columns": [
+        {
+          "name": "classroom_id: ClassroomId",
+          "ordinal": 0,
+          "type_info": "Uuid"
+        },
+        {
+          "name": "count",
+          "ordinal": 1,
+          "type_info": "Int8"
+        }
+      ],
+      "nullable": [
+        false,
+        null
+      ],
+      "parameters": {
+        "Left": [
+          "UuidArray"
+        ]
+      }
+    },
+    "query": "\n            SELECT\n                classroom_id AS \"classroom_id: ClassroomId\",\n                COUNT(agent_id) AS count\n            FROM agent_session\n            WHERE\n                classroom_id = ANY ($1)\n            GROUP BY classroom_id\n            ORDER BY count DESC\n            "
   }
 }
