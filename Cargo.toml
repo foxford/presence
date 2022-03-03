@@ -21,7 +21,7 @@ sqlx = { version = "0.5", features = ["runtime-tokio-native-tls" , "postgres", "
 svc-agent = { version = "0.19", features = ["sqlx"] }
 svc-authn = { version = "0.7", features = ["jose", "sqlx"] }
 svc-error = { version = "0.4", features = ["sentry-extension", "sqlx", "serialize-status-code"] }
-svc-utils = { version = "0.2", features = ["log-middleware", "authn-extractor", "metrics-middleware"] }
+svc-utils = { version = "0.2", features = ["log-middleware", "authn-extractor", "metrics-middleware", "cors-middleware"] }
 thiserror = "1.0"
 tokio = { version = "1.16", features = ["full"] }
 tracing = "0.1"

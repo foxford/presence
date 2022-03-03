@@ -6,8 +6,7 @@ use axum::{
     {AddExtensionLayer, Router},
 };
 use std::sync::Arc;
-use svc_utils::middleware::LogLayer;
-use svc_utils::middleware::MeteredRoute;
+use svc_utils::middleware::{CorsLayer, LogLayer, MeteredRoute};
 
 pub fn new<S: State>(state: S, authn: svc_authn::jose::ConfigMap) -> Router {
     let router = api_router().merge(ws_router());
@@ -25,6 +24,7 @@ fn api_router() -> Router {
             "/api/v1/classrooms/:classroom_id/agents",
             options(v1::options).get(v1::classroom::list_agents::<AppState>),
         )
+        .layer(CorsLayer)
 }
 
 fn ws_router() -> Router {

@@ -13,3 +13,7 @@ udeps:
 
 prepare:
 	cargo sqlx prepare -- --tests
+
+check:
+	cargo check
+	cargo clippy
