@@ -1,6 +1,7 @@
 use crate::classroom::ClassroomId;
 use serde_derive::Serialize;
 use sqlx::PgConnection;
+use std::collections::HashMap;
 use svc_agent::AgentId;
 use uuid::Uuid;
 
@@ -39,7 +40,7 @@ impl AgentList {
 #[derive(Serialize)]
 pub struct AgentCount {
     pub classroom_id: ClassroomId,
-    pub count: Option<i64>,
+    pub count: i64,
 }
 
 pub struct AgentCounter {
@@ -52,22 +53,31 @@ impl AgentCounter {
         Self { classroom_ids }
     }
 
-    pub async fn execute(&self, conn: &mut PgConnection) -> sqlx::Result<Vec<AgentCount>> {
-        sqlx::query_as!(
+    pub async fn execute(
+        &self,
+        conn: &mut PgConnection,
+    ) -> sqlx::Result<HashMap<ClassroomId, i64>> {
+        let query: Vec<AgentCount> = sqlx::query_as!(
             AgentCount,
             r#"
             SELECT
                 classroom_id AS "classroom_id: ClassroomId",
-                COUNT(agent_id) AS count
+                COUNT(agent_id) AS "count!"
             FROM agent_session
             WHERE
                 classroom_id = ANY ($1)
             GROUP BY classroom_id
-            ORDER BY count DESC
             "#,
             &self.classroom_ids
         )
         .fetch_all(conn)
-        .await
+        .await?;
+
+        let result = query
+            .iter()
+            .map(|a| (a.classroom_id, a.count))
+            .collect::<HashMap<_, _>>();
+
+        Ok(result)
     }
 }

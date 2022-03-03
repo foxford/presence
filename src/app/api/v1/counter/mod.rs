@@ -34,16 +34,11 @@ async fn do_count_agents<S: State>(
         .await
         .error(ErrorKind::DbConnAcquisitionFailed)?;
 
-    let result = AgentCounter::new(payload.classroom_ids)
+    let agents_count = AgentCounter::new(payload.classroom_ids)
         .execute(&mut conn)
         .await
         .context("Failed to count agents")
         .error(ErrorKind::DbQueryFailed)?;
-
-    let mut agents_count = HashMap::new();
-    result.iter().for_each(|a| {
-        agents_count.insert(a.classroom_id, a.count.unwrap_or_default());
-    });
 
     let body = serde_json::to_string(&agents_count)
         .context("Failed to serialize agents count")
@@ -70,11 +65,9 @@ mod tests {
         let postgres = test_container.run_postgres();
 
         let db_pool = TestDb::new(&postgres.connection_string).await;
-        let classroom_id_1 = ClassroomId { 0: Uuid::new_v4() };
-        let classroom_id_2 = ClassroomId { 0: Uuid::new_v4() };
+        let classroom_id = ClassroomId { 0: Uuid::new_v4() };
         let agent_1 = TestAgent::new("web", "user1", USR_AUDIENCE);
         let agent_2 = TestAgent::new("web", "user2", USR_AUDIENCE);
-        let agent_3 = TestAgent::new("web", "user2", USR_AUDIENCE);
 
         let _ = {
             let mut conn = db_pool.get_conn().await;
@@ -82,7 +75,7 @@ mod tests {
 
             factory::agent_session::AgentSession::new(
                 agent_1.agent_id().to_owned(),
-                classroom_id_1,
+                classroom_id,
                 replica.clone(),
             )
             .insert(&mut conn)
@@ -91,26 +84,17 @@ mod tests {
 
             factory::agent_session::AgentSession::new(
                 agent_2.agent_id().to_owned(),
-                classroom_id_1,
+                classroom_id,
                 replica.clone(),
             )
             .insert(&mut conn)
             .await
-            .expect("Failed to insert second agent session");
-
-            factory::agent_session::AgentSession::new(
-                agent_3.agent_id().to_owned(),
-                classroom_id_2,
-                replica,
-            )
-            .insert(&mut conn)
-            .await
-            .expect("Failed to insert third agent session");
+            .expect("Failed to insert second agent session")
         };
 
         let state = TestState::new(db_pool);
         let payload = CounterPayload {
-            classroom_ids: vec![classroom_id_1.0, classroom_id_2.0],
+            classroom_ids: vec![classroom_id.0],
         };
 
         let agent = TestAgent::new("web", "user4", USR_AUDIENCE);
@@ -125,8 +109,7 @@ mod tests {
         let body = body.data().await.unwrap().expect("Failed to get body");
 
         let mut result: HashMap<ClassroomId, i64> = HashMap::new();
-        result.insert(classroom_id_1, 2);
-        result.insert(classroom_id_2, 1);
+        result.insert(classroom_id, 2);
 
         let json = serde_json::to_string(&result).expect("Failed to serialize an agent");
 

@@ -22,11 +22,11 @@ fn api_router() -> Router {
         .metered_route("/api/v1/healthz", get(v1::healthz))
         .metered_route(
             "/api/v1/classrooms/:classroom_id/agents",
-            options(v1::options).get(v1::classroom::list_agents::<AppState>),
+            get(v1::classroom::list_agents::<AppState>).options(v1::options),
         )
         .metered_route(
             "/api/v1/counters/agent",
-            .post(v1::counter::count_agents::<AppState>),
+            post(v1::counter::count_agents::<AppState>).options(v1::options),
         )
         .layer(CorsLayer)
 }
