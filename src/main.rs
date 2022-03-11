@@ -2,6 +2,7 @@ use ::tracing::info;
 use anyhow::Result;
 
 mod app;
+mod classroom;
 mod config;
 mod db;
 mod state;

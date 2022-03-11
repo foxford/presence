@@ -5,8 +5,15 @@ db:
 
 deps:
 	rustup toolchain install nightly # for cargo-udeps
-	cargo install cargo-udeps cargo-sort --locked
+	cargo install cargo-udeps cargo-sort cargo-outdated --locked
 	cargo install sqlx-cli --no-default-features --features native-tls,postgres
 
 udeps:
 	cargo +nightly udeps
+
+prepare:
+	cargo sqlx prepare -- --tests
+
+check:
+	cargo check
+	cargo clippy

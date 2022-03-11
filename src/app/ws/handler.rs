@@ -17,15 +17,15 @@ use svc_authn::{
 use tokio::time::{interval, timeout, MissedTickBehavior};
 use tracing::info;
 
-pub(crate) async fn handler(
+pub(crate) async fn handler<S: State>(
     ws: WebSocketUpgrade,
-    Extension(state): Extension<State>,
+    Extension(state): Extension<S>,
     Extension(authn): Extension<Arc<ConfigMap>>,
 ) -> impl IntoResponse {
     ws.on_upgrade(|socket| handle_socket(socket, authn, state))
 }
 
-async fn handle_socket(socket: WebSocket, authn: Arc<ConfigMap>, state: State) {
+async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state: S) {
     let (mut sender, mut receiver) = socket.split();
 
     // Close connection if there is no messages for some time

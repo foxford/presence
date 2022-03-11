@@ -1,13 +1,14 @@
-use crate::app::ws::handler;
-use crate::state::State;
+use crate::app::api::v1;
+use crate::app::ws;
+use crate::state::{AppState, State};
 use axum::{
-    routing::get,
+    routing::{get, options},
     {AddExtensionLayer, Router},
 };
 use std::sync::Arc;
-use svc_utils::middleware::LogLayer;
+use svc_utils::middleware::{CorsLayer, LogLayer, MeteredRoute};
 
-pub(crate) fn new(state: State, authn: svc_authn::jose::ConfigMap) -> Router {
+pub fn new<S: State>(state: S, authn: svc_authn::jose::ConfigMap) -> Router {
     let router = api_router().merge(ws_router());
 
     router
@@ -17,9 +18,15 @@ pub(crate) fn new(state: State, authn: svc_authn::jose::ConfigMap) -> Router {
 }
 
 fn api_router() -> Router {
-    Router::new() // TODO: ULMS-1743
+    Router::new()
+        .metered_route("/api/v1/healthz", get(v1::healthz))
+        .metered_route(
+            "/api/v1/classrooms/:classroom_id/agents",
+            options(v1::options).get(v1::classroom::list_agents::<AppState>),
+        )
+        .layer(CorsLayer)
 }
 
 fn ws_router() -> Router {
-    Router::new().route("/ws", get(handler))
+    Router::new().route("/ws", get(ws::handler::<AppState>))
 }
