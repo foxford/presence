@@ -47,6 +47,10 @@ impl State for TestState {
         &self.authz
     }
 
+    fn replica_id(&self) -> String {
+        "presence_1".to_string()
+    }
+
     async fn get_conn(&self) -> Result<PoolConnection<Postgres>> {
         let conn = self.db_pool.get_conn().await;
         Ok(conn)

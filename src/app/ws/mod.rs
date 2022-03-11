@@ -2,6 +2,7 @@ use http::StatusCode;
 use serde_derive::{Deserialize, Serialize};
 use svc_error::Error as SvcError;
 
+use crate::classroom::ClassroomId;
 pub(crate) use handler::handler;
 
 mod handler;
@@ -14,7 +15,7 @@ pub(crate) enum Request {
 
 #[derive(Deserialize)]
 pub(crate) struct ConnectRequest {
-    classroom_id: String,
+    classroom_id: ClassroomId,
     token: String,
 }
 
@@ -25,10 +26,14 @@ pub(crate) enum Response {
     ConnectFailure(SvcError),
 }
 
+#[derive(PartialEq)]
 enum ConnectError {
     UnsupportedRequest,
     Unauthenticated,
     AccessDenied,
+    DbConnAcquisitionFailed,
+    DbQueryFailed,
+    SerializationFailed,
 }
 
 impl From<ConnectError> for Response {
@@ -45,6 +50,18 @@ impl From<ConnectError> for Response {
             ConnectError::AccessDenied => builder
                 .status(StatusCode::FORBIDDEN)
                 .kind("access_denied", "Access Denied"),
+            ConnectError::DbConnAcquisitionFailed => {
+                builder.status(StatusCode::UNPROCESSABLE_ENTITY).kind(
+                    "database_connection_acquisition_failed",
+                    "Database connection acquisition failed",
+                )
+            }
+            ConnectError::DbQueryFailed => builder
+                .status(StatusCode::UNPROCESSABLE_ENTITY)
+                .kind("database_query_failed", "Database query failed"),
+            ConnectError::SerializationFailed => builder
+                .status(StatusCode::UNPROCESSABLE_ENTITY)
+                .kind("serialization_failed", "Serialization failed"),
         };
 
         let error = builder.build();

@@ -1,4 +1,5 @@
 pub mod agent;
+pub mod authn;
 pub mod authz;
 pub mod db;
 pub mod factory;
@@ -7,10 +8,12 @@ pub mod test_container;
 
 pub mod prelude {
     pub use super::{
-        agent::TestAgent, authz::TestAuthz, db::TestDb, factory, state::TestState,
-        test_container::TestContainer, SVC_AUDIENCE, USR_AUDIENCE,
+        agent::TestAgent, authn, authz::TestAuthz, db::TestDb, factory, state::TestState,
+        test_container::TestContainer, PUBKEY_PATH, SVC_AUDIENCE, TOKEN_ISSUER, USR_AUDIENCE,
     };
 }
 
-pub const USR_AUDIENCE: &str = "dev.usr.example.com";
 pub const SVC_AUDIENCE: &str = "dev.svc.example.org";
+pub const USR_AUDIENCE: &str = "dev.usr.example.com";
+pub const TOKEN_ISSUER: &str = "iam.svc.example.com";
+pub const PUBKEY_PATH: &str = "data/keys/svc.public_key.p8.der.sample";

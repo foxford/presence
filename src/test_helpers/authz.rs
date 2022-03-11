@@ -1,5 +1,5 @@
 use crate::authz::AuthzObject;
-use crate::test_helpers::SVC_AUDIENCE;
+use crate::test_helpers::USR_AUDIENCE;
 use svc_authn::{AccountId, Authenticable};
 use svc_authz::{
     ClientMap, Config, ConfigMap, IntentObject, LocalWhitelistConfig, LocalWhitelistRecord,
@@ -15,8 +15,13 @@ impl TestAuthz {
     pub fn new() -> Self {
         Self {
             records: vec![],
-            audience: SVC_AUDIENCE.to_owned(),
+            audience: USR_AUDIENCE.to_owned(),
         }
+    }
+
+    pub fn set_audience(&mut self, audience: &str) -> &mut Self {
+        self.audience = audience.to_owned();
+        self
     }
 
     pub fn allow<A: Authenticable>(&mut self, subject: &A, object: Vec<&str>, action: &str) {

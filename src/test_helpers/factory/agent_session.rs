@@ -1,4 +1,5 @@
 use crate::classroom::ClassroomId;
+use crate::db::agent_session::AgentSession as Object;
 use sqlx::{types::time::OffsetDateTime, PgConnection};
 use svc_agent::AgentId;
 
@@ -19,14 +20,15 @@ impl AgentSession {
         }
     }
 
-    pub async fn insert(self, conn: &mut PgConnection) -> sqlx::Result<AgentSession> {
+    pub async fn insert(self, conn: &mut PgConnection) -> sqlx::Result<Object> {
         sqlx::query_as!(
-            AgentSession,
+            Object,
             r#"
             INSERT INTO agent_session
                 (agent_id, classroom_id, replica_id, started_at)
             VALUES ($1, $2, $3, $4)
             RETURNING
+                id,
                 agent_id AS "agent_id: AgentId",
                 classroom_id AS "classroom_id: ClassroomId",
                 replica_id,

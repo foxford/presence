@@ -1,9 +1,90 @@
 use crate::classroom::ClassroomId;
 use serde_derive::Serialize;
+use sqlx::postgres::PgQueryResult;
+use sqlx::types::time::OffsetDateTime;
 use sqlx::PgConnection;
 use std::collections::HashMap;
 use svc_agent::AgentId;
 use uuid::Uuid;
+
+#[derive(Clone)]
+pub struct AgentSession {
+    pub id: Uuid,
+    pub agent_id: AgentId,
+    pub classroom_id: ClassroomId,
+    pub replica_id: String,
+    pub started_at: OffsetDateTime,
+}
+
+pub struct InsertQuery {
+    agent_id: AgentId,
+    classroom_id: ClassroomId,
+    replica_id: String,
+    started_at: OffsetDateTime,
+}
+
+impl InsertQuery {
+    pub fn new(
+        agent_id: AgentId,
+        classroom_id: ClassroomId,
+        replica_id: String,
+        started_at: OffsetDateTime,
+    ) -> Self {
+        Self {
+            agent_id,
+            classroom_id,
+            replica_id,
+            started_at,
+        }
+    }
+
+    pub async fn execute(&self, conn: &mut PgConnection) -> sqlx::Result<AgentSession> {
+        sqlx::query_as!(
+            AgentSession,
+            r#"
+            INSERT INTO agent_session
+                (agent_id, classroom_id, replica_id, started_at)
+            VALUES ($1, $2, $3, $4)
+            RETURNING
+                id,
+                agent_id AS "agent_id: AgentId",
+                classroom_id AS "classroom_id: ClassroomId",
+                replica_id,
+                started_at
+            "#,
+            self.agent_id.clone() as AgentId,
+            self.classroom_id as ClassroomId,
+            self.replica_id,
+            self.started_at
+        )
+        .fetch_one(conn)
+        .await
+    }
+}
+
+pub struct DeleteQuery {
+    id: Uuid,
+}
+
+impl DeleteQuery {
+    pub fn new(id: Uuid) -> Self {
+        Self { id }
+    }
+
+    pub async fn execute(&self, conn: &mut PgConnection) -> sqlx::Result<PgQueryResult> {
+        sqlx::query!(
+            r#"
+            DELETE FROM
+                agent_session
+            WHERE
+                id = $1
+            "#,
+            self.id
+        )
+        .execute(conn)
+        .await
+    }
+}
 
 #[derive(Serialize)]
 #[serde(transparent)]

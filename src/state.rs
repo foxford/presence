@@ -9,6 +9,7 @@ use svc_authz::ClientMap as Authz;
 pub trait State: Send + Sync + Clone + 'static {
     fn config(&self) -> &Config;
     fn authz(&self) -> &Authz;
+    fn replica_id(&self) -> String;
     async fn get_conn(&self) -> Result<PoolConnection<Postgres>>;
 }
 
@@ -21,15 +22,17 @@ struct InnerState {
     config: Config,
     db_pool: PgPool,
     authz: Authz,
+    replica_id: String,
 }
 
 impl AppState {
-    pub fn new(config: Config, db_pool: PgPool, authz: Authz) -> Self {
+    pub fn new(config: Config, db_pool: PgPool, authz: Authz, replica_id: String) -> Self {
         Self {
             inner: Arc::new(InnerState {
                 config,
                 db_pool,
                 authz,
+                replica_id,
             }),
         }
     }
@@ -43,6 +46,10 @@ impl State for AppState {
 
     fn authz(&self) -> &Authz {
         &self.inner.authz
+    }
+
+    fn replica_id(&self) -> String {
+        self.inner.replica_id.clone()
     }
 
     async fn get_conn(&self) -> Result<PoolConnection<Postgres>> {

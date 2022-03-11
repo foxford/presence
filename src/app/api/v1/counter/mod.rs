@@ -137,6 +137,7 @@ mod tests {
         let agent = TestAgent::new("web", "user4", USR_AUDIENCE);
 
         let mut authz = TestAuthz::new();
+        authz.set_audience(SVC_AUDIENCE);
         authz.allow(agent.account_id(), vec!["classrooms"], "read");
 
         let state = TestState::new(db_pool, authz);

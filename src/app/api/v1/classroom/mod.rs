@@ -105,7 +105,7 @@ mod tests {
         let postgres = test_container.run_postgres();
         let db_pool = TestDb::new(&postgres.connection_string).await;
         let classroom_id = ClassroomId { 0: Uuid::new_v4() };
-        let agent = TestAgent::new("web", "user1", SVC_AUDIENCE);
+        let agent = TestAgent::new("web", "user1", USR_AUDIENCE);
 
         let _ = {
             let mut conn = db_pool.get_conn().await;
