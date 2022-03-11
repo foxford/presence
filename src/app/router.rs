@@ -2,7 +2,7 @@ use crate::app::api::v1;
 use crate::app::ws;
 use crate::state::{AppState, State};
 use axum::{
-    routing::{get, options, post},
+    routing::{get, post},
     {AddExtensionLayer, Router},
 };
 use std::sync::Arc;
@@ -26,7 +26,7 @@ fn api_router() -> Router {
         )
         .metered_route(
             "/api/v1/counters/agent",
-            post(v1::counter::count_agents::<AppState>).options(v1::options),
+            post(v1::counter::count_agents::<AppState>),
         )
         .layer(CorsLayer)
 }

@@ -6,7 +6,6 @@ use anyhow::Context;
 use axum::{body, extract::Extension, Json};
 use http::Response;
 use serde_derive::Deserialize;
-use std::collections::HashMap;
 use svc_agent::AgentId;
 use svc_utils::extractors::AuthnExtractor;
 use uuid::Uuid;
@@ -58,6 +57,7 @@ mod tests {
     use crate::classroom::ClassroomId;
     use crate::test_helpers::prelude::*;
     use axum::body::HttpBody;
+    use std::collections::HashMap;
 
     #[tokio::test]
     async fn count_agents_test() {
