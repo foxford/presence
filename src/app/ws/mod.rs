@@ -14,8 +14,7 @@ pub(crate) enum Request {
 
 #[derive(Deserialize)]
 pub(crate) struct ConnectRequest {
-    // TODO: ULMS-1745
-    _classroom_id: String,
+    classroom_id: String,
     token: String,
 }
 
@@ -29,8 +28,7 @@ pub(crate) enum Response {
 enum ConnectError {
     UnsupportedRequest,
     Unauthenticated,
-    // TODO: ULMS-1745
-    // AccessDenied,
+    AccessDenied,
 }
 
 impl From<ConnectError> for Response {
@@ -44,10 +42,9 @@ impl From<ConnectError> for Response {
             ConnectError::Unauthenticated => builder
                 .status(StatusCode::UNAUTHORIZED)
                 .kind("unauthenticated", "Unauthenticated"),
-            // TODO: ULMS-1745
-            // ConnectError::AccessDenied => builder
-            //     .status(StatusCode::FORBIDDEN)
-            //     .kind("access_denied", "Access Denied"),
+            ConnectError::AccessDenied => builder
+                .status(StatusCode::FORBIDDEN)
+                .kind("access_denied", "Access Denied"),
         };
 
         let error = builder.build();

@@ -1,4 +1,5 @@
 use crate::app::ws::{ConnectError, ConnectRequest, Request, Response};
+use crate::authz::AuthzObject;
 use crate::state::State;
 use anyhow::Result;
 use axum::{
@@ -13,9 +14,10 @@ use std::sync::Arc;
 use svc_agent::AgentId;
 use svc_authn::{
     jose::ConfigMap, token::jws_compact::extract::decode_jws_compact_with_config, AccountId,
+    Authenticable,
 };
 use tokio::time::{interval, timeout, MissedTickBehavior};
-use tracing::info;
+use tracing::{error, info};
 
 pub(crate) async fn handler<S: State>(
     ws: WebSocketUpgrade,
@@ -38,7 +40,7 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
     // Authentication
     match authn_timeout {
         Ok(Some(result)) => match result {
-            Ok(msg) => match handle_authn_message(msg, authn) {
+            Ok(msg) => match handle_authn_message(msg, authn, state.clone()).await {
                 Ok(m) => {
                     info!("Successful authentication");
                     let _ = sender.send(Message::Text(m)).await;
@@ -123,7 +125,11 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
     }
 }
 
-fn handle_authn_message(message: Message, authn: Arc<ConfigMap>) -> Result<String, ConnectError> {
+async fn handle_authn_message<S: State>(
+    message: Message,
+    authn: Arc<ConfigMap>,
+    state: S,
+) -> Result<String, ConnectError> {
     let msg = match message {
         Message::Text(msg) => msg,
         _ => return Err(ConnectError::UnsupportedRequest),
@@ -131,11 +137,36 @@ fn handle_authn_message(message: Message, authn: Arc<ConfigMap>) -> Result<Strin
 
     let result = serde_json::from_str::<Request>(&msg);
     match result {
-        Ok(Request::ConnectRequest(ConnectRequest { token, .. })) => {
-            match get_agent_id_from_token(token, authn) {
-                Ok(_agent_id) => Ok(make_response(Response::ConnectSuccess)),
-                Err(_) => Err(ConnectError::Unauthenticated),
+        Ok(Request::ConnectRequest(ConnectRequest {
+            token,
+            classroom_id,
+        })) => {
+            let agent_id = match get_agent_id_from_token(token, authn) {
+                Ok(agent_id) => agent_id,
+                Err(err) => {
+                    error!(error = %err, "Failed to authenticate an agent");
+                    return Err(ConnectError::Unauthenticated);
+                }
+            };
+
+            let account_id = agent_id.as_account_id();
+            let object = AuthzObject::new(&["classrooms", &classroom_id.to_string()]).into();
+
+            if let Err(err) = state
+                .authz()
+                .authorize(
+                    account_id.audience().to_string(),
+                    account_id.clone(),
+                    object,
+                    "read".into(),
+                )
+                .await
+            {
+                error!("Failed to authorize action, reason = {:?}", err);
+                return Err(ConnectError::AccessDenied);
             }
+
+            Ok(make_response(Response::ConnectSuccess))
         }
         Err(_) => Err(ConnectError::UnsupportedRequest),
     }

@@ -1,3 +1,4 @@
+use crate::authz::AuthzCache;
 use crate::state::AppState;
 use anyhow::{Context, Result};
 use futures_util::StreamExt;
@@ -10,7 +11,7 @@ mod error;
 mod router;
 mod ws;
 
-pub async fn run(db: PgPool) -> Result<()> {
+pub async fn run(db: PgPool, authz_cache: Option<AuthzCache>) -> Result<()> {
     let config = crate::config::load().context("Failed to load config")?;
     info!("App config: {:?}", config);
 
@@ -18,7 +19,10 @@ pub async fn run(db: PgPool) -> Result<()> {
         svc_error::extension::sentry::init(sentry_config);
     }
 
-    let state = AppState::new(config.clone(), db);
+    let authz = svc_authz::ClientMap::new(&config.id, authz_cache, config.authz.clone(), None)
+        .context("Error converting authz config to clients")?;
+
+    let state = AppState::new(config.clone(), db, authz);
     let router = router::new(state, config.authn.clone());
 
     // For graceful shutdown

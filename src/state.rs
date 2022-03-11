@@ -3,10 +3,12 @@ use anyhow::{Context, Result};
 use async_trait::async_trait;
 use sqlx::{pool::PoolConnection, PgPool, Postgres};
 use std::sync::Arc;
+use svc_authz::ClientMap as Authz;
 
 #[async_trait]
 pub trait State: Send + Sync + Clone + 'static {
     fn config(&self) -> &Config;
+    fn authz(&self) -> &Authz;
     async fn get_conn(&self) -> Result<PoolConnection<Postgres>>;
 }
 
@@ -18,12 +20,17 @@ pub struct AppState {
 struct InnerState {
     config: Config,
     db_pool: PgPool,
+    authz: Authz,
 }
 
 impl AppState {
-    pub fn new(config: Config, db_pool: PgPool) -> Self {
+    pub fn new(config: Config, db_pool: PgPool, authz: Authz) -> Self {
         Self {
-            inner: Arc::new(InnerState { config, db_pool }),
+            inner: Arc::new(InnerState {
+                config,
+                db_pool,
+                authz,
+            }),
         }
     }
 }
@@ -32,6 +39,10 @@ impl AppState {
 impl State for AppState {
     fn config(&self) -> &Config {
         &self.inner.config
+    }
+
+    fn authz(&self) -> &Authz {
+        &self.inner.authz
     }
 
     async fn get_conn(&self) -> Result<PoolConnection<Postgres>> {

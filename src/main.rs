@@ -2,6 +2,7 @@ use ::tracing::info;
 use anyhow::Result;
 
 mod app;
+mod authz;
 mod classroom;
 mod config;
 mod db;
@@ -24,5 +25,6 @@ async fn main() -> Result<()> {
     );
 
     let db = db::new_pool().await;
-    app::run(db).await
+    let authz_cache = authz::new_cache();
+    app::run(db, authz_cache).await
 }

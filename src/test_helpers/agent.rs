@@ -1,5 +1,5 @@
 use svc_agent::{mqtt::Address, AgentId};
-use svc_authn::AccountId;
+use svc_authn::{AccountId, Authenticable};
 
 pub const API_VERSION: &str = "v1";
 
@@ -17,5 +17,9 @@ impl TestAgent {
 
     pub fn agent_id(&self) -> &AgentId {
         &self.address.id()
+    }
+
+    pub fn account_id(&self) -> &AccountId {
+        &self.address.id().as_account_id()
     }
 }
