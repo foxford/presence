@@ -202,6 +202,24 @@
     },
     "query": "\n            SELECT\n                classroom_id AS \"classroom_id: ClassroomId\",\n                COUNT(agent_id) AS \"count!\"\n            FROM agent_session\n            WHERE\n                classroom_id = ANY ($1)\n            GROUP BY classroom_id\n            "
   },
+  "748be24f4129ea2a18b635ad5039d8655b33e247ea285829438db1991fce4255": {
+    "describe": {
+      "columns": [
+        {
+          "name": "total",
+          "ordinal": 0,
+          "type_info": "Int8"
+        }
+      ],
+      "nullable": [
+        null
+      ],
+      "parameters": {
+        "Left": []
+      }
+    },
+    "query": "\n            SELECT\n                COUNT(*) AS total\n            FROM\n                agent_session_history\n            "
+  },
   "8558dfb8a72bc984ee11661c6cd906f63f83ad597e10ea49a865114a9b28aad3": {
     "describe": {
       "columns": [],
@@ -247,6 +265,24 @@
       }
     },
     "query": "\n            INSERT INTO agent_session_history\n                (agent_id, classroom_id, lifetime)\n            VALUES ($1, $2, $3)\n            "
+  },
+  "c933897bae1096d9046189b27ec5f1baa4c6d8fff3637de5c2c0a0d553ddf67a": {
+    "describe": {
+      "columns": [
+        {
+          "name": "total",
+          "ordinal": 0,
+          "type_info": "Int8"
+        }
+      ],
+      "nullable": [
+        null
+      ],
+      "parameters": {
+        "Left": []
+      }
+    },
+    "query": "\n            SELECT\n                COUNT(*) AS total\n            FROM\n                agent_session\n            "
   },
   "e13d6a99e105550c7c3353a332a9492018eb39a0fbc2d9d7a256a029d47f41a2": {
     "describe": {

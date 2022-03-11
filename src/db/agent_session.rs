@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use svc_agent::AgentId;
 use uuid::Uuid;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct AgentSession {
     pub id: Uuid,
     pub agent_id: AgentId,

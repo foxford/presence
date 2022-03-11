@@ -70,10 +70,12 @@ async fn do_count_agents<S: State>(
 mod tests {
     use super::*;
     use crate::classroom::ClassroomId;
+    use crate::db::agent_session;
     use crate::test_helpers::prelude::*;
     use axum::body::HttpBody;
     use axum::response::IntoResponse;
     use serde_json::Value;
+    use sqlx::types::time::OffsetDateTime;
     use std::collections::HashMap;
 
     #[tokio::test]
@@ -115,21 +117,23 @@ mod tests {
             let mut conn = db_pool.get_conn().await;
             let replica = "replica_id".to_string();
 
-            factory::agent_session::AgentSession::new(
+            agent_session::InsertQuery::new(
                 agent_1.agent_id().to_owned(),
                 classroom_id,
                 replica.clone(),
+                OffsetDateTime::now_utc(),
             )
-            .insert(&mut conn)
+            .execute(&mut conn)
             .await
             .expect("Failed to insert first agent session");
 
-            factory::agent_session::AgentSession::new(
+            agent_session::InsertQuery::new(
                 agent_2.agent_id().to_owned(),
                 classroom_id,
-                replica.clone(),
+                replica,
+                OffsetDateTime::now_utc(),
             )
-            .insert(&mut conn)
+            .execute(&mut conn)
             .await
             .expect("Failed to insert second agent session")
         };

@@ -309,129 +309,217 @@ mod tests {
     use serde_json::json;
     use uuid::Uuid;
 
-    #[tokio::test]
-    async fn handle_authn_message_unsupported_request() {
-        let test_container = TestContainer::new();
-        let postgres = test_container.run_postgres();
-        let db_pool = TestDb::new(&postgres.connection_string).await;
-        let msg = Message::Binary("".into());
-        let authn = Arc::new(authn::new());
-        let state = TestState::new(db_pool, TestAuthz::new());
+    mod handle_authn_message {
+        use super::*;
 
-        let result = handle_authn_message(msg, authn, state)
-            .await
-            .expect_err("Unexpectedly succeeded");
+        #[tokio::test]
+        async fn unsupported_request() {
+            let test_container = TestContainer::new();
+            let postgres = test_container.run_postgres();
+            let db_pool = TestDb::new(&postgres.connection_string).await;
+            let msg = Message::Binary("".into());
+            let authn = Arc::new(authn::new());
+            let state = TestState::new(db_pool, TestAuthz::new());
 
-        assert_eq!(result, ConnectError::UnsupportedRequest);
+            let result = handle_authn_message(msg, authn, state)
+                .await
+                .expect_err("Unexpectedly succeeded");
+
+            assert_eq!(result, ConnectError::UnsupportedRequest);
+        }
+
+        #[tokio::test]
+        async fn serialization_failed() {
+            let test_container = TestContainer::new();
+            let postgres = test_container.run_postgres();
+            let db_pool = TestDb::new(&postgres.connection_string).await;
+            let msg = Message::Text("".into());
+            let authn = Arc::new(authn::new());
+            let state = TestState::new(db_pool, TestAuthz::new());
+
+            let result = handle_authn_message(msg, authn, state)
+                .await
+                .expect_err("Unexpectedly succeeded");
+
+            assert_eq!(result, ConnectError::SerializationFailed);
+        }
+
+        #[tokio::test]
+        async fn unauthenticated() {
+            let test_container = TestContainer::new();
+            let postgres = test_container.run_postgres();
+            let db_pool = TestDb::new(&postgres.connection_string).await;
+            let classroom_id = ClassroomId { 0: Uuid::new_v4() };
+
+            let cmd = json!({
+                "type": "connect_request",
+                "payload": {
+                    "classroom_id": classroom_id,
+                    "token": "1234"
+                }
+            });
+
+            let msg = Message::Text(cmd.to_string());
+            let authn = Arc::new(authn::new());
+            let state = TestState::new(db_pool, TestAuthz::new());
+
+            let result = handle_authn_message(msg, authn, state)
+                .await
+                .expect_err("Unexpectedly succeeded");
+
+            assert_eq!(result, ConnectError::Unauthenticated);
+        }
+
+        #[tokio::test]
+        async fn unauthorized() {
+            let test_container = TestContainer::new();
+            let postgres = test_container.run_postgres();
+            let db_pool = TestDb::new(&postgres.connection_string).await;
+            let classroom_id = ClassroomId { 0: Uuid::new_v4() };
+            let agent = TestAgent::new("http", "user123", USR_AUDIENCE);
+            let token = agent.token();
+
+            let cmd = json!({
+                "type": "connect_request",
+                "payload": {
+                    "classroom_id": classroom_id,
+                    "token": token
+                }
+            });
+
+            let msg = Message::Text(cmd.to_string());
+            let authn = Arc::new(authn::new());
+            let state = TestState::new(db_pool, TestAuthz::new());
+
+            let result = handle_authn_message(msg, authn, state)
+                .await
+                .expect_err("Unexpectedly succeeded");
+
+            assert_eq!(result, ConnectError::AccessDenied);
+        }
+
+        #[tokio::test]
+        async fn success() {
+            let test_container = TestContainer::new();
+            let postgres = test_container.run_postgres();
+            let db_pool = TestDb::new(&postgres.connection_string).await;
+            let classroom_id = ClassroomId { 0: Uuid::new_v4() };
+            let agent = TestAgent::new("http", "user123", USR_AUDIENCE);
+            let token = agent.token();
+
+            let cmd = json!({
+                "type": "connect_request",
+                "payload": {
+                    "classroom_id": classroom_id,
+                    "token": token
+                }
+            });
+
+            let msg = Message::Text(cmd.to_string());
+            let authn = Arc::new(authn::new());
+
+            let mut authz = TestAuthz::new();
+            authz.allow(
+                agent.account_id(),
+                vec!["classrooms", &classroom_id.to_string()],
+                "read",
+            );
+            let state = TestState::new(db_pool, authz);
+
+            let (resp, session) = handle_authn_message(msg, authn, state)
+                .await
+                .expect("Failed to handle authentication message");
+
+            let success = serde_json::to_string(&Response::ConnectSuccess)
+                .expect("Failed to serialize response");
+
+            assert_eq!(resp, success);
+            assert_eq!(session.agent_id, agent.agent_id().to_owned());
+            assert_eq!(session.classroom_id, classroom_id);
+        }
     }
 
-    #[tokio::test]
-    async fn handle_authn_message_serialization_failed() {
-        let test_container = TestContainer::new();
-        let postgres = test_container.run_postgres();
-        let db_pool = TestDb::new(&postgres.connection_string).await;
-        let msg = Message::Text("".into());
-        let authn = Arc::new(authn::new());
-        let state = TestState::new(db_pool, TestAuthz::new());
+    mod move_session_to_history {
+        use super::*;
 
-        let result = handle_authn_message(msg, authn, state)
-            .await
-            .expect_err("Unexpectedly succeeded");
+        #[tokio::test]
+        async fn create_history() {
+            let test_container = TestContainer::new();
+            let postgres = test_container.run_postgres();
+            let db_pool = TestDb::new(&postgres.connection_string).await;
+            let classroom_id = ClassroomId { 0: Uuid::new_v4() };
+            let agent = TestAgent::new("http", "user123", USR_AUDIENCE);
 
-        assert_eq!(result, ConnectError::SerializationFailed);
-    }
+            let session = {
+                let mut conn = db_pool.get_conn().await;
 
-    #[tokio::test]
-    async fn handle_authn_message_unauthenticated() {
-        let test_container = TestContainer::new();
-        let postgres = test_container.run_postgres();
-        let db_pool = TestDb::new(&postgres.connection_string).await;
-        let classroom_id = ClassroomId { 0: Uuid::new_v4() };
+                agent_session::InsertQuery::new(
+                    agent.agent_id().to_owned(),
+                    classroom_id,
+                    "replica".to_string(),
+                    OffsetDateTime::now_utc(),
+                )
+                .execute(&mut conn)
+                .await
+                .expect("Failed to insert an agent session")
+            };
 
-        let cmd = json!({
-            "type": "connect_request",
-            "payload": {
-                "classroom_id": classroom_id,
-                "token": "1234"
-            }
-        });
+            let state = TestState::new(db_pool.clone(), TestAuthz::new());
+            move_session_to_history(state, session).await;
 
-        let msg = Message::Text(cmd.to_string());
-        let authn = Arc::new(authn::new());
-        let state = TestState::new(db_pool, TestAuthz::new());
+            let mut conn = db_pool.get_conn().await;
+            let agents_count = factory::agent_session::AgentSessionCounter::count(&mut conn)
+                .await
+                .expect("Failed to count agent session");
 
-        let result = handle_authn_message(msg, authn, state)
-            .await
-            .expect_err("Unexpectedly succeeded");
+            let history_count =
+                factory::agent_session_history::AgentSessionHistoryCounter::count(&mut conn)
+                    .await
+                    .expect("Failed to count agent session history");
 
-        assert_eq!(result, ConnectError::Unauthenticated);
-    }
+            assert_eq!(agents_count, 0);
+            assert_eq!(history_count, 1);
+        }
 
-    #[tokio::test]
-    async fn handle_authn_message_unauthorized() {
-        let test_container = TestContainer::new();
-        let postgres = test_container.run_postgres();
-        let db_pool = TestDb::new(&postgres.connection_string).await;
-        let classroom_id = ClassroomId { 0: Uuid::new_v4() };
-        let agent = TestAgent::new("http", "user123", USR_AUDIENCE);
-        let token = agent.token();
+        #[tokio::test]
+        async fn update_history() {
+            let test_container = TestContainer::new();
+            let postgres = test_container.run_postgres();
+            let db_pool = TestDb::new(&postgres.connection_string).await;
+            let classroom_id = ClassroomId { 0: Uuid::new_v4() };
+            let agent = TestAgent::new("http", "user123", USR_AUDIENCE);
 
-        let cmd = json!({
-            "type": "connect_request",
-            "payload": {
-                "classroom_id": classroom_id,
-                "token": token
-            }
-        });
+            let session = {
+                let mut conn = db_pool.get_conn().await;
 
-        let msg = Message::Text(cmd.to_string());
-        let authn = Arc::new(authn::new());
-        let state = TestState::new(db_pool, TestAuthz::new());
+                let session = agent_session::InsertQuery::new(
+                    agent.agent_id().to_owned(),
+                    classroom_id,
+                    "replica".to_string(),
+                    OffsetDateTime::now_utc(),
+                )
+                .execute(&mut conn)
+                .await
+                .expect("Failed to insert an agent session");
 
-        let result = handle_authn_message(msg, authn, state)
-            .await
-            .expect_err("Unexpectedly succeeded");
+                agent_session_history::InsertQuery::new(session.clone(), OffsetDateTime::now_utc())
+                    .execute(&mut conn)
+                    .await
+                    .expect("Failed to insert an agent session history");
 
-        assert_eq!(result, ConnectError::AccessDenied);
-    }
+                session
+            };
 
-    #[tokio::test]
-    async fn handle_authn_message_success() {
-        let test_container = TestContainer::new();
-        let postgres = test_container.run_postgres();
-        let db_pool = TestDb::new(&postgres.connection_string).await;
-        let classroom_id = ClassroomId { 0: Uuid::new_v4() };
-        let agent = TestAgent::new("http", "user123", USR_AUDIENCE);
-        let token = agent.token();
+            let state = TestState::new(db_pool.clone(), TestAuthz::new());
+            move_session_to_history(state, session).await;
 
-        let cmd = json!({
-            "type": "connect_request",
-            "payload": {
-                "classroom_id": classroom_id,
-                "token": token
-            }
-        });
+            let mut conn = db_pool.get_conn().await;
+            let history_count =
+                factory::agent_session_history::AgentSessionHistoryCounter::count(&mut conn)
+                    .await
+                    .expect("Failed to count agent session history");
 
-        let msg = Message::Text(cmd.to_string());
-        let authn = Arc::new(authn::new());
-
-        let mut authz = TestAuthz::new();
-        authz.allow(
-            agent.account_id(),
-            vec!["classrooms", &classroom_id.to_string()],
-            "read",
-        );
-        let state = TestState::new(db_pool, authz);
-
-        let (resp, session) = handle_authn_message(msg, authn, state)
-            .await
-            .expect("Failed to handle authentication message");
-
-        let success =
-            serde_json::to_string(&Response::ConnectSuccess).expect("Failed to serialize response");
-
-        assert_eq!(resp, success);
-        assert_eq!(session.agent_id, agent.agent_id().to_owned());
-        assert_eq!(session.classroom_id, classroom_id);
+            assert_eq!(history_count, 1);
+        }
     }
 }

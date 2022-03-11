@@ -69,11 +69,13 @@ async fn do_list_agents<S: State>(
 mod tests {
     use super::*;
     use crate::classroom::ClassroomId;
+    use crate::db::agent_session;
     use crate::db::agent_session::Agent;
     use crate::test_helpers::prelude::*;
     use axum::body::HttpBody;
     use axum::response::IntoResponse;
     use serde_json::Value;
+    use sqlx::types::time::OffsetDateTime;
     use uuid::Uuid;
 
     #[tokio::test]
@@ -110,12 +112,13 @@ mod tests {
         let _ = {
             let mut conn = db_pool.get_conn().await;
 
-            factory::agent_session::AgentSession::new(
+            agent_session::InsertQuery::new(
                 agent.agent_id().to_owned(),
                 classroom_id,
                 "replica".to_string(),
+                OffsetDateTime::now_utc(),
             )
-            .insert(&mut conn)
+            .execute(&mut conn)
             .await
             .expect("Failed to insert an agent session")
         };

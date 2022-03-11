@@ -26,7 +26,7 @@ pub(crate) enum Response {
     ConnectFailure(SvcError),
 }
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Debug)]
 enum ConnectError {
     UnsupportedRequest,
     Unauthenticated,
