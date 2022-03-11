@@ -1,11 +1,17 @@
+id = "presence.dev.svc.example.org"
 listener_address = "0.0.0.0:3000"
+svc_audience = "dev.svc.example.org"
+
+[websocket]
+ping_interval = "30s"
+pong_expiration_interval = "5s"
+authentication_timeout = "5s"
 
 [authn."dev.svc.example.org"]
 audience = ["dev.svc.example.org"]
 algorithm = "ES256"
 key = "data/keys/svc.public_key.p8.der.sample"
 
-[websocket]
-ping_interval = "30s"
-pong_expiration_interval = "5s"
-authentication_timeout = "5s"
+[authz."dev.svc.example.org"]
+type = "local"
+trusted = ["dev.svc.example.org"]

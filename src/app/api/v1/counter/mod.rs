@@ -1,5 +1,6 @@
 use crate::app::api::AppResult;
 use crate::app::error::{ErrorExt, ErrorKind};
+use crate::authz::AuthzObject;
 use crate::db::agent_session::AgentCounter;
 use crate::state::State;
 use anyhow::Context;
@@ -7,6 +8,7 @@ use axum::{body, extract::Extension, Json};
 use http::Response;
 use serde_derive::Deserialize;
 use svc_agent::AgentId;
+use svc_authn::Authenticable;
 use svc_utils::extractors::AuthnExtractor;
 use uuid::Uuid;
 
@@ -25,9 +27,22 @@ pub async fn count_agents<S: State>(
 
 async fn do_count_agents<S: State>(
     state: S,
-    _agent_id: AgentId,
+    agent_id: AgentId,
     payload: CounterPayload,
 ) -> AppResult {
+    let account_id = agent_id.as_account_id();
+    let object = AuthzObject::new(&["classrooms"]).into();
+
+    state
+        .authz()
+        .authorize(
+            state.config().svc_audience.clone(),
+            account_id.clone(),
+            object,
+            "read".into(),
+        )
+        .await?;
+
     let mut conn = state
         .get_conn()
         .await
@@ -57,13 +72,40 @@ mod tests {
     use crate::classroom::ClassroomId;
     use crate::test_helpers::prelude::*;
     use axum::body::HttpBody;
+    use axum::response::IntoResponse;
+    use serde_json::Value;
     use std::collections::HashMap;
 
     #[tokio::test]
-    async fn count_agents_test() {
+    async fn count_agents_unauthorized() {
         let test_container = TestContainer::new();
         let postgres = test_container.run_postgres();
+        let db_pool = TestDb::new(&postgres.connection_string).await;
+        let classroom_id = ClassroomId { 0: Uuid::new_v4() };
+        let state = TestState::new(db_pool, TestAuthz::new());
+        let agent = TestAgent::new("web", "user1", USR_AUDIENCE);
+        let payload = CounterPayload {
+            classroom_ids: vec![classroom_id.0],
+        };
 
+        let resp = do_count_agents(state, agent.agent_id().to_owned(), payload)
+            .await
+            .expect_err("Unexpectedly succeeded")
+            .into_response();
+
+        assert_eq!(resp.status(), 403);
+
+        let mut body = resp.into_body();
+        let body = body.data().await.unwrap().expect("Failed to get body");
+        let json: Value = serde_json::from_slice(&body).expect("Failed to deserialize body");
+
+        assert_eq!(json["type"], "access_denied");
+    }
+
+    #[tokio::test]
+    async fn count_agents_success() {
+        let test_container = TestContainer::new();
+        let postgres = test_container.run_postgres();
         let db_pool = TestDb::new(&postgres.connection_string).await;
         let classroom_id = ClassroomId { 0: Uuid::new_v4() };
         let agent_1 = TestAgent::new("web", "user1", USR_AUDIENCE);
@@ -92,12 +134,15 @@ mod tests {
             .expect("Failed to insert second agent session")
         };
 
-        let state = TestState::new(db_pool);
+        let agent = TestAgent::new("web", "user4", USR_AUDIENCE);
+
+        let mut authz = TestAuthz::new();
+        authz.allow(agent.account_id(), vec!["classrooms"], "read");
+
+        let state = TestState::new(db_pool, authz);
         let payload = CounterPayload {
             classroom_ids: vec![classroom_id.0],
         };
-
-        let agent = TestAgent::new("web", "user4", USR_AUDIENCE);
 
         let resp = do_count_agents(state, agent.agent_id().to_owned(), payload)
             .await

@@ -2,6 +2,7 @@ use crate::app::{
     api::AppResult,
     error::{ErrorExt, ErrorKind},
 };
+use crate::authz::AuthzObject;
 use crate::classroom::ClassroomId;
 use crate::db::agent_session::AgentList;
 use crate::state::State;
@@ -12,6 +13,7 @@ use axum::{
 };
 use http::Response;
 use svc_agent::AgentId;
+use svc_authn::Authenticable;
 use svc_utils::extractors::AuthnExtractor;
 
 pub async fn list_agents<S: State>(
@@ -25,8 +27,21 @@ pub async fn list_agents<S: State>(
 async fn do_list_agents<S: State>(
     state: S,
     classroom_id: ClassroomId,
-    _agent_id: AgentId,
+    agent_id: AgentId,
 ) -> AppResult {
+    let account_id = agent_id.as_account_id();
+    let object = AuthzObject::new(&["classrooms", &classroom_id.to_string()]).into();
+
+    state
+        .authz()
+        .authorize(
+            account_id.audience().to_string(),
+            account_id.clone(),
+            object,
+            "read".into(),
+        )
+        .await?;
+
     let mut conn = state
         .get_conn()
         .await
@@ -57,16 +72,40 @@ mod tests {
     use crate::db::agent_session::Agent;
     use crate::test_helpers::prelude::*;
     use axum::body::HttpBody;
+    use axum::response::IntoResponse;
+    use serde_json::Value;
     use uuid::Uuid;
 
     #[tokio::test]
-    async fn list_agents_test() {
+    async fn list_agents_unauthorized() {
         let test_container = TestContainer::new();
         let postgres = test_container.run_postgres();
-
         let db_pool = TestDb::new(&postgres.connection_string).await;
+        let state = TestState::new(db_pool, TestAuthz::new());
         let classroom_id = ClassroomId { 0: Uuid::new_v4() };
         let agent = TestAgent::new("web", "user1", USR_AUDIENCE);
+
+        let resp = do_list_agents(state, classroom_id, agent.agent_id().to_owned())
+            .await
+            .expect_err("Unexpectedly succeeded")
+            .into_response();
+
+        assert_eq!(resp.status(), 403);
+
+        let mut body = resp.into_body();
+        let body = body.data().await.unwrap().expect("Failed to get body");
+        let json: Value = serde_json::from_slice(&body).expect("Failed to deserialize body");
+
+        assert_eq!(json["type"], "access_denied");
+    }
+
+    #[tokio::test]
+    async fn list_agents_success() {
+        let test_container = TestContainer::new();
+        let postgres = test_container.run_postgres();
+        let db_pool = TestDb::new(&postgres.connection_string).await;
+        let classroom_id = ClassroomId { 0: Uuid::new_v4() };
+        let agent = TestAgent::new("web", "user1", SVC_AUDIENCE);
 
         let _ = {
             let mut conn = db_pool.get_conn().await;
@@ -81,7 +120,14 @@ mod tests {
             .expect("Failed to insert an agent session")
         };
 
-        let state = TestState::new(db_pool);
+        let mut authz = TestAuthz::new();
+        authz.allow(
+            agent.account_id(),
+            vec!["classrooms", &classroom_id.to_string()],
+            "read",
+        );
+
+        let state = TestState::new(db_pool, authz);
 
         let resp = do_list_agents(state, classroom_id, agent.agent_id().to_owned())
             .await

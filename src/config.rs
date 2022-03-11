@@ -1,14 +1,19 @@
 use serde_derive::Deserialize;
 use std::{net::SocketAddr, time::Duration};
 use svc_authn::jose::ConfigMap as AuthnConfig;
+use svc_authn::AccountId;
+use svc_authz::ConfigMap as Authz;
 use svc_error::extension::sentry::Config as SentryConfig;
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct Config {
+    pub id: AccountId,
     pub listener_address: SocketAddr,
     pub sentry: Option<SentryConfig>,
     pub authn: AuthnConfig,
     pub websocket: WebSocketConfig,
+    pub authz: Authz,
+    pub svc_audience: String,
 }
 
 #[derive(Clone, Debug, Deserialize)]

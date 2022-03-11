@@ -21,6 +21,8 @@ pub enum ErrorKind {
     DbQueryFailed,
     SerializationFailed,
     ResponseBuildFailed,
+    AccessDenied,
+    AuthorizationFailed,
 }
 
 impl ErrorKind {
@@ -63,6 +65,18 @@ impl From<ErrorKind> for ErrorKindProperties {
                 kind: "response_build_failed",
                 title: "Response build failed",
                 _is_notify_sentry: true,
+            },
+            ErrorKind::AccessDenied => ErrorKindProperties {
+                status: StatusCode::FORBIDDEN,
+                kind: "access_denied",
+                title: "Access denied",
+                _is_notify_sentry: false,
+            },
+            ErrorKind::AuthorizationFailed => ErrorKindProperties {
+                status: StatusCode::UNPROCESSABLE_ENTITY,
+                kind: "authorization_failed",
+                title: "Authorization failed",
+                _is_notify_sentry: false,
             },
         }
     }
@@ -135,6 +149,20 @@ impl fmt::Display for Error {
 impl StdError for Error {
     fn source(&self) -> Option<&(dyn StdError + 'static)> {
         Some(self.source.as_ref().as_ref())
+    }
+}
+
+impl From<svc_authz::Error> for Error {
+    fn from(source: svc_authz::Error) -> Self {
+        let kind = match source.kind() {
+            svc_authz::ErrorKind::Forbidden(_) => ErrorKind::AccessDenied,
+            _ => ErrorKind::AuthorizationFailed,
+        };
+
+        Self {
+            kind,
+            source: Box::new(anyhow::Error::from(source)),
+        }
     }
 }
 
