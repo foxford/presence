@@ -102,8 +102,7 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
                             None => info!("An agent closed connection"),
                         }
 
-                        move_session_to_history(state, agent_session).await;
-                        return;
+                        break;
                     },
                     Err(e) => {
                         info!(error = %e, "An error occurred when receiving a message.");
@@ -118,8 +117,7 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
             _ = ping_interval.tick() => {
                 if sender.send(Message::Ping(Vec::new())).await.is_err() {
                     info!("An agent disconnected (ping not sent)");
-                    move_session_to_history(state, agent_session).await;
-                    return;
+                    break;
                 }
                 info!("Ping sent");
                 ping_sent = true;
@@ -129,14 +127,15 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
             _ = pong_expiration_interval.tick() => {
                 if ping_sent {
                     info!("Connection is closed (pong timeout exceeded)");
-                    move_session_to_history(state, agent_session).await;
                     let _ = sender.close().await;
-                    return;
+                    break;
                 }
                 info!("Pong is OK");
             }
         }
     }
+
+    move_session_to_history(state, agent_session).await;
 }
 
 async fn handle_authn_message<S: State>(
@@ -218,7 +217,7 @@ async fn authorize_agent<S: State>(
             account_id.audience().to_string(),
             account_id.clone(),
             object,
-            "read".into(),
+            "connect".into(),
         )
         .await
     {
