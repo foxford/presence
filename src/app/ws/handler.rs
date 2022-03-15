@@ -6,7 +6,7 @@ use crate::db::{
     agent_session_history,
 };
 use crate::state::State;
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use axum::{
     extract::{
         ws::{Message, WebSocket},
@@ -135,7 +135,9 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
         }
     }
 
-    move_session_to_history(state, agent_session).await;
+    if let Err(err) = move_session_to_history(state, agent_session).await {
+        error!(error = %err, "Failed to move session to history");
+    }
 }
 
 async fn handle_authn_message<S: State>(
@@ -242,63 +244,58 @@ fn make_response(response: Response) -> String {
     serde_json::to_string(&response).unwrap_or_default()
 }
 
-async fn move_session_to_history<S: State>(state: S, session: AgentSession) {
-    let mut conn = match state.get_conn().await {
-        Ok(conn) => conn,
-        Err(err) => {
-            error!(error = %err, "Failed to get db connection");
-            return;
-        }
-    };
+async fn move_session_to_history<S: State>(state: S, session: AgentSession) -> Result<()> {
+    let mut conn = state
+        .get_conn()
+        .await
+        .map_err(|e| anyhow!("Failed to get db connection: {:?}", e))?;
 
-    let mut tx = match conn.begin().await {
-        Ok(tx) => tx,
-        Err(err) => {
-            error!(error = %err, "Failed to acquire transaction");
-            return;
-        }
-    };
+    let mut tx = conn
+        .begin()
+        .await
+        .map_err(|e| anyhow!("Failed to acquire transaction: {:?}", e))?;
 
     let now = OffsetDateTime::now_utc();
-    let check_query = agent_session_history::CheckLifetimeOverlapQuery::new(session.clone(), now);
-    let session_history = match check_query.execute(&mut tx).await {
-        Ok(history) => history,
-        Err(err) => {
-            error!(error = %err, "Failed to check agent_session_history lifetime overlap");
-            return;
-        }
-    };
+    let session_history =
+        agent_session_history::CheckLifetimeOverlapQuery::new(session.clone(), now)
+            .execute(&mut tx)
+            .await
+            .map_err(|e| {
+                anyhow!(
+                    "Failed to check agent_session_history lifetime overlap: {:?}",
+                    e
+                )
+            })?;
 
     match session_history {
         Some(history) => {
-            let update_query = agent_session_history::UpdateLifetimeQuery::new(
+            agent_session_history::UpdateLifetimeQuery::new(
                 history.id,
                 history.lifetime.start,
                 Bound::Excluded(now),
-            );
-            if let Err(err) = update_query.execute(&mut tx).await {
-                error!(error = %err, "Failed to update agent_session_history lifetime");
-                return;
-            }
+            )
+            .execute(&mut tx)
+            .await
+            .map_err(|e| anyhow!("Failed to update agent_session_history lifetime: {:?}", e))?;
         }
         None => {
-            let insert_query = agent_session_history::InsertQuery::new(session.clone(), now);
-            if let Err(err) = insert_query.execute(&mut tx).await {
-                error!(error = %err, "Failed to create agent_session_history");
-                return;
-            }
+            agent_session_history::InsertQuery::new(session.clone(), now)
+                .execute(&mut tx)
+                .await
+                .map_err(|e| anyhow!("Failed to create agent_session_history: {:?}", e))?;
         }
     }
 
-    let delete_query = agent_session::DeleteQuery::new(session.id);
-    if let Err(err) = delete_query.execute(&mut tx).await {
-        error!(error = %err, "Failed to delete agent_session");
-        return;
-    }
+    agent_session::DeleteQuery::new(session.id)
+        .execute(&mut tx)
+        .await
+        .map_err(|e| anyhow!("Failed to delete agent_session: {:?}", e))?;
 
-    if let Err(err) = tx.commit().await {
-        error!(error = %err, "Failed to commit transaction");
-    }
+    tx.commit()
+        .await
+        .map_err(|e| anyhow!("Failed to commit transaction: {:?}", e))?;
+
+    Ok(())
 }
 
 #[cfg(test)]
@@ -421,7 +418,7 @@ mod tests {
             authz.allow(
                 agent.account_id(),
                 vec!["classrooms", &classroom_id.to_string()],
-                "read",
+                "connect",
             );
             let state = TestState::new(db_pool, authz);
 
@@ -464,7 +461,9 @@ mod tests {
             };
 
             let state = TestState::new(db_pool.clone(), TestAuthz::new());
-            move_session_to_history(state, session).await;
+            move_session_to_history(state, session)
+                .await
+                .expect("Failed to move session to history");
 
             let mut conn = db_pool.get_conn().await;
             let agents_count = factory::agent_session::AgentSessionCounter::count(&mut conn)
@@ -510,7 +509,9 @@ mod tests {
             };
 
             let state = TestState::new(db_pool.clone(), TestAuthz::new());
-            move_session_to_history(state, session).await;
+            move_session_to_history(state, session)
+                .await
+                .expect("Failed to move session to history");
 
             let mut conn = db_pool.get_conn().await;
             let history_count =
