@@ -1,11 +1,15 @@
 use crate::authz::AuthzCache;
-use crate::state::AppState;
+use crate::db;
+use crate::state::{AppState, State};
 use anyhow::{Context, Result};
 use futures_util::StreamExt;
 use signal_hook::consts::TERM_SIGNALS;
 use sqlx::PgPool;
 use std::env::var;
+use tokio::select;
+use tokio::time::{interval, MissedTickBehavior};
 use tracing::{error, info};
+use uuid::Uuid;
 
 mod api;
 mod error;
@@ -25,16 +29,53 @@ pub async fn run(db: PgPool, authz_cache: Option<AuthzCache>) -> Result<()> {
     let authz = svc_authz::ClientMap::new(&config.id, authz_cache, config.authz.clone(), None)
         .context("Error converting authz config to clients")?;
 
-    let state = AppState::new(config.clone(), db, authz, replica_id);
-    let router = router::new(state, config.authn.clone());
+    let (sender, _) = tokio::sync::broadcast::channel::<Uuid>(100); // todo: from config?
+    let state = AppState::new(
+        config.clone(),
+        db,
+        authz,
+        replica_id.clone(),
+        sender.clone(),
+    );
+    let router = router::new(state.clone(), config.authn.clone());
+
+    let old_connection_handler = tokio::task::spawn(async move {
+        let mut conn = state.get_conn().await.expect("Failed to get db connection");
+
+        let mut check_interval = interval(state.config().websocket.check_old_connection_interval);
+        check_interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
+
+        loop {
+            select! {
+                _ = check_interval.tick() => {
+                    match db::old_agent_session::GetQuery::new(replica_id.clone())
+                        .execute(&mut conn)
+                        .await
+                    {
+                        Ok(session_ids) => {
+                            session_ids.iter().for_each(|s| {
+                                if let Err(e) = sender.send(s.id) {
+                                    error!(error = %e, "Failed to send session_id");
+                                }
+                            })
+                        }
+                        Err(e) => {
+                            error!(error = %e, "Failed to get old agent sessions");
+                        }
+                    }
+                }
+            }
+        }
+    });
 
     // For graceful shutdown
-    let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
+    let (shutdown_server_tx, shutdown_server_rx) = tokio::sync::oneshot::channel::<()>();
+
     let server = tokio::spawn(
         axum::Server::bind(&config.listener_address)
             .serve(router.into_make_service())
             .with_graceful_shutdown(async {
-                shutdown_rx.await.ok();
+                shutdown_server_rx.await.ok();
             }),
     );
 
@@ -43,11 +84,15 @@ pub async fn run(db: PgPool, authz_cache: Option<AuthzCache>) -> Result<()> {
     let signals = signals_stream.next();
     let _ = signals.await;
     // Initiating graceful shutdown
-    let _ = shutdown_tx.send(());
+    let _ = shutdown_server_tx.send(());
 
-    // Make sure server is stopped
+    // Make sure server and old connection handler are stopped
     if let Err(err) = server.await {
-        error!("Failed to await server completion, err = {err}");
+        error!(error = %err, "Failed to await server completion");
+    }
+
+    if let Err(err) = old_connection_handler.await {
+        error!(error = %err, "Failed to await old connection handler completion");
     }
 
     Ok(())

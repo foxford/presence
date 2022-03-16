@@ -24,6 +24,8 @@ pub struct WebSocketConfig {
     pub pong_expiration_interval: Duration,
     #[serde(with = "humantime_serde")]
     pub authentication_timeout: Duration,
+    #[serde(with = "humantime_serde")]
+    pub check_old_connection_interval: Duration,
 }
 
 pub fn load() -> Result<Config, config::ConfigError> {

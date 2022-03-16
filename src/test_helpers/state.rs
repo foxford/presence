@@ -7,6 +7,8 @@ use sqlx::{pool::PoolConnection, Postgres};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use svc_authn::AccountId;
 use svc_authz::ClientMap as Authz;
+use tokio::sync::broadcast::Receiver;
+use uuid::Uuid;
 
 #[derive(Clone)]
 pub struct TestState {
@@ -27,6 +29,7 @@ impl TestState {
                     ping_interval: Default::default(),
                     pong_expiration_interval: Default::default(),
                     authentication_timeout: Default::default(),
+                    check_old_connection_interval: Default::default(),
                 },
                 authz: Default::default(),
                 svc_audience: SVC_AUDIENCE.to_string(),
@@ -49,6 +52,10 @@ impl State for TestState {
 
     fn replica_id(&self) -> String {
         "presence_1".to_string()
+    }
+
+    fn old_connection_rx(&self) -> Receiver<Uuid> {
+        todo!()
     }
 
     async fn get_conn(&self) -> Result<PoolConnection<Postgres>> {

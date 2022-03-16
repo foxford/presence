@@ -162,3 +162,43 @@ impl AgentCounter {
         Ok(result)
     }
 }
+
+pub struct GetQuery {
+    agent_id: AgentId,
+    classroom_id: ClassroomId,
+    replica_id: String,
+}
+
+impl GetQuery {
+    pub fn new(agent_id: AgentId, classroom_id: ClassroomId, replica_id: String) -> Self {
+        Self {
+            agent_id,
+            classroom_id,
+            replica_id,
+        }
+    }
+
+    pub async fn execute(&self, conn: &mut PgConnection) -> sqlx::Result<AgentSession> {
+        sqlx::query_as!(
+            AgentSession,
+            r#"
+            SELECT
+                id,
+                agent_id AS "agent_id: AgentId",
+                classroom_id AS "classroom_id: ClassroomId",
+                replica_id,
+                started_at
+            FROM agent_session
+            WHERE
+                agent_id = $1
+                AND classroom_id = $2
+                AND replica_id = $3
+            "#,
+            self.agent_id.clone() as AgentId,
+            self.classroom_id as ClassroomId,
+            self.replica_id,
+        )
+        .fetch_one(conn)
+        .await
+    }
+}

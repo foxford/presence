@@ -3,10 +3,11 @@ use crate::authz::AuthzObject;
 use crate::classroom::ClassroomId;
 use crate::db::{
     agent_session::{self, AgentSession},
-    agent_session_history,
+    agent_session_history, old_agent_session,
 };
 use crate::state::State;
 use anyhow::{anyhow, Result};
+use async_recursion::async_recursion;
 use axum::{
     extract::{
         ws::{Message, WebSocket},
@@ -26,6 +27,7 @@ use svc_authn::{
 };
 use tokio::time::{interval, timeout, MissedTickBehavior};
 use tracing::{error, info};
+use uuid::Uuid;
 
 pub(crate) async fn handler<S: State>(
     ws: WebSocketUpgrade,
@@ -64,7 +66,7 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
                 }
             },
             Err(e) => {
-                info!(error = %e, "An error occurred when receiving a message.");
+                error!(error = %e, "An error occurred when receiving a message");
                 return;
             }
         },
@@ -84,6 +86,8 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
     // In order not to hurry
     ping_interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
     pong_expiration_interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
+
+    let mut old_conn_rx = state.old_connection_rx();
 
     loop {
         tokio::select! {
@@ -105,7 +109,7 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
                         break;
                     },
                     Err(e) => {
-                        info!(error = %e, "An error occurred when receiving a message.");
+                        error!(error = %e, "An error occurred when receiving a message.");
                         return;
                     },
                     _ => {
@@ -131,6 +135,19 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
                     break;
                 }
                 info!("Pong is OK");
+            }
+            // Close old connections
+            Ok(session_id) = old_conn_rx.recv() => {
+                if agent_session.id == session_id {
+                    info!("Old connection is closed");
+                    let _ = sender.close().await;
+
+                    if let Err(e) = delete_old_session(state, session_id).await {
+                        error!(error = %e);
+                    }
+
+                    return;
+                }
             }
         }
     }
@@ -165,7 +182,7 @@ async fn handle_authn_message<S: State>(
             };
 
             authorize_agent(state.clone(), &agent_id, &classroom_id).await?;
-            let agent_session = save_agent_session(state, classroom_id, agent_id).await?;
+            let agent_session = create_agent_session(state, classroom_id, agent_id).await?;
 
             Ok((make_response(Response::ConnectSuccess), agent_session))
         }
@@ -176,7 +193,8 @@ async fn handle_authn_message<S: State>(
     }
 }
 
-async fn save_agent_session<S: State>(
+#[async_recursion]
+async fn create_agent_session<S: State>(
     state: S,
     classroom_id: ClassroomId,
     agent_id: AgentId,
@@ -190,7 +208,7 @@ async fn save_agent_session<S: State>(
     };
 
     let insert_query = agent_session::InsertQuery::new(
-        agent_id,
+        agent_id.clone(),
         classroom_id,
         state.replica_id(),
         OffsetDateTime::now_utc(),
@@ -198,11 +216,65 @@ async fn save_agent_session<S: State>(
 
     match insert_query.execute(&mut conn).await {
         Ok(agent_session) => Ok(agent_session),
+        Err(sqlx::Error::Database(err)) => {
+            if let Some(constraint) = err.constraint() {
+                if constraint == "uniq_classroom_id_agent_id" {
+                    if let Err(err) =
+                        mark_prev_session_as_outdated(state.clone(), classroom_id, agent_id.clone())
+                            .await
+                    {
+                        error!(error = %err, "Failed to mark session as outdated");
+                        return Err(ConnectError::DbQueryFailed);
+                    }
+
+                    return create_agent_session(state, classroom_id, agent_id).await;
+                }
+            }
+
+            error!(error = %err, "Failed to create an agent session");
+            Err(ConnectError::DbQueryFailed)
+        }
         Err(err) => {
             error!(error = %err, "Failed to create an agent session");
             Err(ConnectError::DbQueryFailed)
         }
     }
+}
+
+async fn mark_prev_session_as_outdated<S: State>(
+    state: S,
+    classroom_id: ClassroomId,
+    agent_id: AgentId,
+) -> Result<()> {
+    let mut conn = state
+        .get_conn()
+        .await
+        .map_err(|e| anyhow!("Failed to get db connection: {:?}", e))?;
+    let mut tx = conn
+        .begin()
+        .await
+        .map_err(|e| anyhow!("Failed to acquire transaction: {:?}", e))?;
+
+    let session = agent_session::GetQuery::new(agent_id, classroom_id, state.replica_id())
+        .execute(&mut tx)
+        .await
+        .map_err(|e| anyhow!("Failed to get agent session: {:?}", e))?;
+
+    old_agent_session::InsertQuery::new(session.clone())
+        .execute(&mut tx)
+        .await
+        .map_err(|e| anyhow!("Failed to create old_agent_session: {:?}", e))?;
+
+    agent_session::DeleteQuery::new(session.id)
+        .execute(&mut tx)
+        .await
+        .map_err(|e| anyhow!("Failed to delete agent_session: {:?}", e))?;
+
+    tx.commit()
+        .await
+        .map_err(|e| anyhow!("Failed to commit transaction: {:?}", e))?;
+
+    Ok(())
 }
 
 async fn authorize_agent<S: State>(
@@ -294,6 +366,20 @@ async fn move_session_to_history<S: State>(state: S, session: AgentSession) -> R
     tx.commit()
         .await
         .map_err(|e| anyhow!("Failed to commit transaction: {:?}", e))?;
+
+    Ok(())
+}
+
+async fn delete_old_session<S: State>(state: S, session_id: Uuid) -> Result<()> {
+    let mut conn = state
+        .get_conn()
+        .await
+        .map_err(|e| anyhow!("Failed to get db connection: {:?}", e))?;
+
+    old_agent_session::DeleteQuery::new(session_id)
+        .execute(&mut conn)
+        .await
+        .map_err(|e| anyhow!("Failed to delete old_agent_session: {:?}", e))?;
 
     Ok(())
 }
