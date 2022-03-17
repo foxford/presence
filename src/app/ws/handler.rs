@@ -1,4 +1,5 @@
 use crate::app::ws::{ConnectError, ConnectRequest, Request, Response};
+use crate::app::Command;
 use crate::authz::AuthzObject;
 use crate::classroom::ClassroomId;
 use crate::db::{
@@ -25,6 +26,7 @@ use svc_authn::{
     jose::ConfigMap, token::jws_compact::extract::decode_jws_compact_with_config, AccountId,
     Authenticable,
 };
+use tokio::sync::oneshot;
 use tokio::time::{interval, timeout, MissedTickBehavior};
 use tracing::{error, info};
 use uuid::Uuid;
@@ -77,6 +79,17 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
         }
     };
 
+    // To close old connections from the same agents
+    let (close_tx, mut close_rx) = oneshot::channel::<()>();
+
+    if let Err(e) = state
+        .cmd_sender()
+        .send(Command::Register((agent_session.id, close_tx)))
+    {
+        error!(error = %e, "Failed to register session_id: {:?}", agent_session.id);
+        return;
+    }
+
     let mut ping_sent = false;
 
     // Ping/Pong intervals
@@ -87,15 +100,12 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
     ping_interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
     pong_expiration_interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
 
-    let mut old_conn_rx = state.old_connection_rx();
-
     loop {
         tokio::select! {
             // Get Pong/Close messages from client
             Some(result) = receiver.next() => {
                 match result {
                     Ok(Message::Pong(_)) => {
-                        info!("Pong received");
                         ping_sent = false;
                     },
                     Ok(Message::Close(frame)) => {
@@ -106,11 +116,20 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
                             None => info!("An agent closed connection"),
                         }
 
+                        if let Err(e) = state.cmd_sender().send(Command::Terminate(agent_session.id)) {
+                            error!(error = %e, "Failed to terminate session_id: {:?}", agent_session.id);
+                        }
+
                         break;
                     },
                     Err(e) => {
-                        error!(error = %e, "An error occurred when receiving a message.");
-                        return;
+                        error!(error = %e, "An error occurred when receiving a message");
+
+                        if let Err(e) = state.cmd_sender().send(Command::Terminate(agent_session.id)) {
+                            error!(error = %e, "Failed to terminate session_id: {:?}", agent_session.id);
+                        }
+
+                        break;
                     },
                     _ => {
                         // Ping/Text/Binary messages - do nothing
@@ -121,9 +140,14 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
             _ = ping_interval.tick() => {
                 if sender.send(Message::Ping(Vec::new())).await.is_err() {
                     info!("An agent disconnected (ping not sent)");
+
+                    if let Err(e) = state.cmd_sender().send(Command::Terminate(agent_session.id)) {
+                        error!(error = %e, "Failed to terminate session_id: {:?}", agent_session.id);
+                    }
+
                     break;
                 }
-                info!("Ping sent");
+
                 ping_sent = true;
                 pong_expiration_interval.reset();
             }
@@ -132,22 +156,24 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
                 if ping_sent {
                     info!("Connection is closed (pong timeout exceeded)");
                     let _ = sender.close().await;
-                    break;
-                }
-                info!("Pong is OK");
-            }
-            // Close old connections
-            Ok(session_id) = old_conn_rx.recv() => {
-                if agent_session.id == session_id {
-                    info!("Old connection is closed");
-                    let _ = sender.close().await;
 
-                    if let Err(e) = delete_old_session(state, session_id).await {
-                        error!(error = %e);
+                    if let Err(e) = state.cmd_sender().send(Command::Terminate(agent_session.id)) {
+                        error!(error = %e, "Failed to terminate session_id: {:?}", agent_session.id);
                     }
 
-                    return;
+                    break;
                 }
+            }
+            // Close old connections
+            Err(_) = &mut close_rx => {
+                info!("Old connection is closed");
+                let _ = sender.close().await;
+
+                if let Err(e) = delete_old_session(state, agent_session.id).await {
+                    error!(error = %e);
+                }
+
+                return;
             }
         }
     }

@@ -1,3 +1,4 @@
+use crate::app::Command;
 use crate::config::{Config, WebSocketConfig};
 use crate::state::State;
 use crate::test_helpers::prelude::*;
@@ -7,8 +8,7 @@ use sqlx::{pool::PoolConnection, Postgres};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use svc_authn::AccountId;
 use svc_authz::ClientMap as Authz;
-use tokio::sync::broadcast::Receiver;
-use uuid::Uuid;
+use tokio::sync::mpsc::UnboundedSender;
 
 #[derive(Clone)]
 pub struct TestState {
@@ -54,8 +54,8 @@ impl State for TestState {
         "presence_1".to_string()
     }
 
-    fn old_connection_rx(&self) -> Receiver<Uuid> {
-        todo!()
+    fn cmd_sender(&self) -> UnboundedSender<Command> {
+        unreachable!();
     }
 
     async fn get_conn(&self) -> Result<PoolConnection<Postgres>> {
