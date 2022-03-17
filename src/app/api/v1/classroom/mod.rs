@@ -7,27 +7,39 @@ use crate::classroom::ClassroomId;
 use crate::db::agent_session::AgentList;
 use crate::state::State;
 use anyhow::Context;
+use axum::extract::Query;
 use axum::{
     body,
     extract::{Extension, Path},
 };
 use http::Response;
+use serde_derive::Deserialize;
 use svc_agent::AgentId;
 use svc_authn::Authenticable;
 use svc_utils::extractors::AuthnExtractor;
+
+const MAX_LIMIT: usize = 25;
+
+#[derive(Deserialize, Default)]
+pub struct Payload {
+    offset: Option<usize>,
+    limit: Option<usize>,
+}
 
 pub async fn list_agents<S: State>(
     Extension(state): Extension<S>,
     Path(classroom_id): Path<ClassroomId>,
     AuthnExtractor(agent_id): AuthnExtractor,
+    Query(payload): Query<Payload>,
 ) -> AppResult {
-    do_list_agents(state, classroom_id, agent_id).await
+    do_list_agents(state, classroom_id, agent_id, payload).await
 }
 
 async fn do_list_agents<S: State>(
     state: S,
     classroom_id: ClassroomId,
     agent_id: AgentId,
+    payload: Payload,
 ) -> AppResult {
     let account_id = agent_id.as_account_id();
     let object = AuthzObject::new(&["classrooms", &classroom_id.to_string()]).into();
@@ -47,11 +59,15 @@ async fn do_list_agents<S: State>(
         .await
         .error(ErrorKind::DbConnAcquisitionFailed)?;
 
-    let agents = AgentList::new(classroom_id)
-        .execute(&mut conn)
-        .await
-        .context("Failed to get list of agents")
-        .error(ErrorKind::DbQueryFailed)?;
+    let agents = AgentList::new(
+        classroom_id,
+        payload.offset.unwrap_or(0),
+        std::cmp::min(payload.limit.unwrap_or(MAX_LIMIT), MAX_LIMIT),
+    )
+    .execute(&mut conn)
+    .await
+    .context("Failed to get list of agents")
+    .error(ErrorKind::DbQueryFailed)?;
 
     let body = serde_json::to_string(&agents)
         .context("Failed to serialize agents")
@@ -87,10 +103,15 @@ mod tests {
         let classroom_id = ClassroomId { 0: Uuid::new_v4() };
         let agent = TestAgent::new("web", "user1", USR_AUDIENCE);
 
-        let resp = do_list_agents(state, classroom_id, agent.agent_id().to_owned())
-            .await
-            .expect_err("Unexpectedly succeeded")
-            .into_response();
+        let resp = do_list_agents(
+            state,
+            classroom_id,
+            agent.agent_id().to_owned(),
+            Payload::default(),
+        )
+        .await
+        .expect_err("Unexpectedly succeeded")
+        .into_response();
 
         assert_eq!(resp.status(), 403);
 
@@ -132,9 +153,14 @@ mod tests {
 
         let state = TestState::new(db_pool, authz);
 
-        let resp = do_list_agents(state, classroom_id, agent.agent_id().to_owned())
-            .await
-            .expect("Failed to get list of agents");
+        let resp = do_list_agents(
+            state,
+            classroom_id,
+            agent.agent_id().to_owned(),
+            Payload::default(),
+        )
+        .await
+        .expect("Failed to get list of agents");
 
         assert_eq!(resp.status(), 200);
 

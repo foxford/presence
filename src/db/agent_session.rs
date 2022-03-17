@@ -94,11 +94,17 @@ pub struct Agent {
 
 pub struct AgentList {
     classroom_id: ClassroomId,
+    offset: usize,
+    limit: usize,
 }
 
 impl AgentList {
-    pub fn new(classroom_id: ClassroomId) -> Self {
-        Self { classroom_id }
+    pub fn new(classroom_id: ClassroomId, offset: usize, limit: usize) -> Self {
+        Self {
+            classroom_id,
+            offset,
+            limit,
+        }
     }
 
     pub async fn execute(&self, conn: &mut PgConnection) -> sqlx::Result<Vec<Agent>> {
@@ -110,8 +116,12 @@ impl AgentList {
             FROM agent_session
             WHERE
                 classroom_id = $1::uuid
+            LIMIT $2
+            OFFSET $3
             "#,
-            self.classroom_id as ClassroomId
+            self.classroom_id as ClassroomId,
+            self.limit as u32,
+            self.offset as u32
         )
         .fetch_all(conn)
         .await

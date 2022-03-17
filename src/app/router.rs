@@ -1,9 +1,10 @@
 use crate::app::api::v1;
 use crate::app::ws;
 use crate::state::{AppState, State};
+use axum::extract::Extension;
 use axum::{
     routing::{get, post},
-    {AddExtensionLayer, Router},
+    Router,
 };
 use std::sync::Arc;
 use svc_utils::middleware::{CorsLayer, LogLayer, MeteredRoute};
@@ -12,8 +13,8 @@ pub fn new<S: State>(state: S, authn: svc_authn::jose::ConfigMap) -> Router {
     let router = api_router().merge(ws_router());
 
     router
-        .layer(AddExtensionLayer::new(Arc::new(authn)))
-        .layer(AddExtensionLayer::new(state))
+        .layer(Extension(Arc::new(authn)))
+        .layer(Extension(state))
         .layer(LogLayer::new())
 }
 
