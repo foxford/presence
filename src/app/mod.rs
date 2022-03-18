@@ -1,21 +1,24 @@
-use crate::authz::AuthzCache;
-use crate::db;
-use crate::state::{AppState, State};
-use anyhow::{Context, Result};
+use crate::{
+    authz::AuthzCache,
+    db::{self, agent_session, old_agent_session},
+    state::{AppState, State},
+};
+use anyhow::{anyhow, Context, Result};
 use futures_util::StreamExt;
 use signal_hook::consts::TERM_SIGNALS;
 use sqlx::PgPool;
 use std::collections::HashMap;
 use std::env::var;
-use tokio::sync::mpsc::UnboundedReceiver;
-use tokio::sync::oneshot::Receiver;
-use tokio::sync::{mpsc, oneshot};
-use tokio::time::{interval, MissedTickBehavior};
+use tokio::{
+    sync::{mpsc, mpsc::UnboundedReceiver, oneshot, oneshot::Receiver},
+    time::{interval, MissedTickBehavior},
+};
 use tracing::{error, info};
 use uuid::Uuid;
 
 mod api;
 mod error;
+mod history;
 mod router;
 mod ws;
 
@@ -43,6 +46,11 @@ pub async fn run(db: PgPool, authz_cache: Option<AuthzCache>) -> Result<()> {
     let state = AppState::new(config.clone(), db, authz, replica_id.clone(), cmd_tx);
     let router = router::new(state.clone(), config.authn.clone());
 
+    // Move hanging sessions from last time to history
+    if let Err(e) = move_sessions_to_history(state.clone(), replica_id.clone()).await {
+        error!(error = %e, "Failed to move sessions to history");
+    }
+
     // For graceful shutdown
     let (shutdown_server_tx, shutdown_server_rx) = oneshot::channel::<()>();
     let (shutdown_manager_tx, shutdown_manager_rx) = oneshot::channel::<()>();
@@ -55,8 +63,11 @@ pub async fn run(db: PgPool, authz_cache: Option<AuthzCache>) -> Result<()> {
             }),
     );
 
-    let session_manager =
-        tokio::task::spawn(manage_agent_sessions(state, cmd_rx, shutdown_manager_rx));
+    let session_manager = tokio::task::spawn(manage_agent_sessions(
+        state.clone(),
+        cmd_rx,
+        shutdown_manager_rx,
+    ));
 
     // Waiting for signals for graceful shutdown
     let mut signals_stream = signal_hook_tokio::Signals::new(TERM_SIGNALS)?.fuse();
@@ -65,6 +76,11 @@ pub async fn run(db: PgPool, authz_cache: Option<AuthzCache>) -> Result<()> {
     // Initiating graceful shutdown
     let _ = shutdown_server_tx.send(());
     let _ = shutdown_manager_tx.send(());
+
+    // Move hanging sessions to history
+    if let Err(e) = move_sessions_to_history(state, replica_id).await {
+        error!(error = %e, "Failed to move sessions to history");
+    }
 
     // Make sure server and session manager are stopped
     if let Err(err) = server.await {
@@ -97,15 +113,17 @@ async fn manage_agent_sessions<S: State>(
             Some(cmd) = cmd_rx.recv() => {
                 match cmd {
                     Command::Register((session_id, sender)) => {
+                        info!("register {:?}", session_id);
                         sessions.insert(session_id, sender);
                     }
                     Command::Terminate(session_id) => {
+                        info!("terminate {:?}", session_id);
                         sessions.remove(&session_id);
                     }
                 }
             }
             _ = check_interval.tick() => {
-                match db::old_agent_session::GetQuery::new(state.replica_id())
+                match db::old_agent_session::GetAllByReplicaQuery::new(state.replica_id())
                     .execute(&mut conn)
                     .await
                 {
@@ -127,4 +145,49 @@ async fn manage_agent_sessions<S: State>(
             }
         }
     }
+}
+
+async fn move_sessions_to_history<S: State>(state: S, replica_id: String) -> Result<()> {
+    let mut conn = state
+        .get_conn()
+        .await
+        .map_err(|e| anyhow!("Failed to get db connection: {:?}", e))?;
+
+    let sessions = agent_session::GetAllByReplicaQuery::new(replica_id.clone())
+        .execute(&mut conn)
+        .await
+        .map_err(|e| anyhow!("Failed to get agent sessions: {:?}", e))?;
+
+    for s in sessions.clone() {
+        history::move_session(&mut conn, s)
+            .await
+            .map_err(|e| anyhow!("Failed to move agent sessions: {:?}", e))?;
+    }
+
+    let old_sessions = old_agent_session::GetAllByReplicaQuery::new(replica_id)
+        .execute(&mut conn)
+        .await
+        .map_err(|e| anyhow!("Failed to get old agent sessions: {:?}", e))?;
+
+    for s in old_sessions.clone() {
+        history::move_old_session(&mut conn, s)
+            .await
+            .map_err(|e| anyhow!("Failed to move agent sessions: {:?}", e))?;
+    }
+
+    for s in sessions {
+        agent_session::DeleteQuery::new(s.id)
+            .execute(&mut conn)
+            .await
+            .map_err(|e| anyhow!("Failed to delete agent session: {:?}", e))?;
+    }
+
+    for s in old_sessions {
+        old_agent_session::DeleteQuery::new(s.id)
+            .execute(&mut conn)
+            .await
+            .map_err(|e| anyhow!("Failed to delete old agent session: {:?}", e))?;
+    }
+
+    Ok(())
 }

@@ -33,24 +33,25 @@ impl InsertQuery {
     }
 }
 
-pub struct SessionId {
-    pub id: Uuid,
-}
-
-pub struct GetQuery {
+pub struct GetAllByReplicaQuery {
     replica_id: String,
 }
 
-impl GetQuery {
+impl GetAllByReplicaQuery {
     pub fn new(replica_id: String) -> Self {
         Self { replica_id }
     }
 
-    pub async fn execute(&self, conn: &mut PgConnection) -> sqlx::Result<Vec<SessionId>> {
+    pub async fn execute(&self, conn: &mut PgConnection) -> sqlx::Result<Vec<AgentSession>> {
         sqlx::query_as!(
-            SessionId,
+            AgentSession,
             r#"
-            SELECT id
+            SELECT
+                id,
+                agent_id AS "agent_id: AgentId",
+                classroom_id AS "classroom_id: ClassroomId",
+                replica_id,
+                started_at
             FROM old_agent_session
             WHERE replica_id = $1
             "#,

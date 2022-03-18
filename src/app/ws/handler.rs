@@ -1,12 +1,17 @@
-use crate::app::ws::{ConnectError, ConnectRequest, Request, Response};
-use crate::app::Command;
-use crate::authz::AuthzObject;
-use crate::classroom::ClassroomId;
-use crate::db::{
-    agent_session::{self, AgentSession},
-    agent_session_history, old_agent_session,
+use crate::{
+    app::{
+        history,
+        ws::{ConnectError, ConnectRequest, Request, Response},
+        Command,
+    },
+    authz::AuthzObject,
+    classroom::ClassroomId,
+    db::{
+        agent_session::{self, AgentSession},
+        old_agent_session,
+    },
+    state::State,
 };
-use crate::state::State;
 use anyhow::{anyhow, Result};
 use async_recursion::async_recursion;
 use axum::{
@@ -17,19 +22,18 @@ use axum::{
     response::IntoResponse,
 };
 use futures_util::{SinkExt, StreamExt};
-use sqlx::types::time::OffsetDateTime;
-use sqlx::Connection;
-use std::ops::Bound;
+use sqlx::{types::time::OffsetDateTime, Connection};
 use std::sync::Arc;
 use svc_agent::AgentId;
 use svc_authn::{
     jose::ConfigMap, token::jws_compact::extract::decode_jws_compact_with_config, AccountId,
     Authenticable,
 };
-use tokio::sync::oneshot;
-use tokio::time::{interval, timeout, MissedTickBehavior};
+use tokio::{
+    sync::oneshot,
+    time::{interval, timeout, MissedTickBehavior},
+};
 use tracing::{error, info};
-use uuid::Uuid;
 
 pub(crate) async fn handler<S: State>(
     ws: WebSocketUpgrade,
@@ -169,7 +173,7 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
                 info!("Old connection is closed");
                 let _ = sender.close().await;
 
-                if let Err(e) = delete_old_session(state, agent_session.id).await {
+                if let Err(e) = move_old_session_to_history(state, agent_session).await {
                     error!(error = %e);
                 }
 
@@ -276,6 +280,7 @@ async fn mark_prev_session_as_outdated<S: State>(
         .get_conn()
         .await
         .map_err(|e| anyhow!("Failed to get db connection: {:?}", e))?;
+
     let mut tx = conn
         .begin()
         .await
@@ -342,70 +347,27 @@ fn make_response(response: Response) -> String {
     serde_json::to_string(&response).unwrap_or_default()
 }
 
-async fn move_session_to_history<S: State>(state: S, session: AgentSession) -> Result<()> {
+async fn move_session_to_history<S: State>(state: S, agent_session: AgentSession) -> Result<()> {
     let mut conn = state
         .get_conn()
         .await
         .map_err(|e| anyhow!("Failed to get db connection: {:?}", e))?;
 
-    let mut tx = conn
-        .begin()
-        .await
-        .map_err(|e| anyhow!("Failed to acquire transaction: {:?}", e))?;
-
-    let now = OffsetDateTime::now_utc();
-    let session_history =
-        agent_session_history::CheckLifetimeOverlapQuery::new(session.clone(), now)
-            .execute(&mut tx)
-            .await
-            .map_err(|e| {
-                anyhow!(
-                    "Failed to check agent_session_history lifetime overlap: {:?}",
-                    e
-                )
-            })?;
-
-    match session_history {
-        Some(history) => {
-            agent_session_history::UpdateLifetimeQuery::new(
-                history.id,
-                history.lifetime.start,
-                Bound::Excluded(now),
-            )
-            .execute(&mut tx)
-            .await
-            .map_err(|e| anyhow!("Failed to update agent_session_history lifetime: {:?}", e))?;
-        }
-        None => {
-            agent_session_history::InsertQuery::new(session.clone(), now)
-                .execute(&mut tx)
-                .await
-                .map_err(|e| anyhow!("Failed to create agent_session_history: {:?}", e))?;
-        }
-    }
-
-    agent_session::DeleteQuery::new(session.id)
-        .execute(&mut tx)
-        .await
-        .map_err(|e| anyhow!("Failed to delete agent_session: {:?}", e))?;
-
-    tx.commit()
-        .await
-        .map_err(|e| anyhow!("Failed to commit transaction: {:?}", e))?;
+    history::move_session(&mut conn, agent_session).await?;
 
     Ok(())
 }
 
-async fn delete_old_session<S: State>(state: S, session_id: Uuid) -> Result<()> {
+async fn move_old_session_to_history<S: State>(
+    state: S,
+    agent_session: AgentSession,
+) -> Result<()> {
     let mut conn = state
         .get_conn()
         .await
         .map_err(|e| anyhow!("Failed to get db connection: {:?}", e))?;
 
-    old_agent_session::DeleteQuery::new(session_id)
-        .execute(&mut conn)
-        .await
-        .map_err(|e| anyhow!("Failed to delete old_agent_session: {:?}", e))?;
+    history::move_old_session(&mut conn, agent_session).await?;
 
     Ok(())
 }
@@ -544,94 +506,6 @@ mod tests {
             assert_eq!(resp, success);
             assert_eq!(session.agent_id, agent.agent_id().to_owned());
             assert_eq!(session.classroom_id, classroom_id);
-        }
-    }
-
-    mod move_session_to_history {
-        use super::*;
-
-        #[tokio::test]
-        async fn create_history() {
-            let test_container = TestContainer::new();
-            let postgres = test_container.run_postgres();
-            let db_pool = TestDb::new(&postgres.connection_string).await;
-            let classroom_id = ClassroomId { 0: Uuid::new_v4() };
-            let agent = TestAgent::new("http", "user123", USR_AUDIENCE);
-
-            let session = {
-                let mut conn = db_pool.get_conn().await;
-
-                agent_session::InsertQuery::new(
-                    agent.agent_id().to_owned(),
-                    classroom_id,
-                    "replica".to_string(),
-                    OffsetDateTime::now_utc(),
-                )
-                .execute(&mut conn)
-                .await
-                .expect("Failed to insert an agent session")
-            };
-
-            let state = TestState::new(db_pool.clone(), TestAuthz::new());
-            move_session_to_history(state, session)
-                .await
-                .expect("Failed to move session to history");
-
-            let mut conn = db_pool.get_conn().await;
-            let agents_count = factory::agent_session::AgentSessionCounter::count(&mut conn)
-                .await
-                .expect("Failed to count agent session");
-
-            let history_count =
-                factory::agent_session_history::AgentSessionHistoryCounter::count(&mut conn)
-                    .await
-                    .expect("Failed to count agent session history");
-
-            assert_eq!(agents_count, 0);
-            assert_eq!(history_count, 1);
-        }
-
-        #[tokio::test]
-        async fn update_history() {
-            let test_container = TestContainer::new();
-            let postgres = test_container.run_postgres();
-            let db_pool = TestDb::new(&postgres.connection_string).await;
-            let classroom_id = ClassroomId { 0: Uuid::new_v4() };
-            let agent = TestAgent::new("http", "user123", USR_AUDIENCE);
-
-            let session = {
-                let mut conn = db_pool.get_conn().await;
-
-                let session = agent_session::InsertQuery::new(
-                    agent.agent_id().to_owned(),
-                    classroom_id,
-                    "replica".to_string(),
-                    OffsetDateTime::now_utc(),
-                )
-                .execute(&mut conn)
-                .await
-                .expect("Failed to insert an agent session");
-
-                agent_session_history::InsertQuery::new(session.clone(), OffsetDateTime::now_utc())
-                    .execute(&mut conn)
-                    .await
-                    .expect("Failed to insert an agent session history");
-
-                session
-            };
-
-            let state = TestState::new(db_pool.clone(), TestAuthz::new());
-            move_session_to_history(state, session)
-                .await
-                .expect("Failed to move session to history");
-
-            let mut conn = db_pool.get_conn().await;
-            let history_count =
-                factory::agent_session_history::AgentSessionHistoryCounter::count(&mut conn)
-                    .await
-                    .expect("Failed to count agent session history");
-
-            assert_eq!(history_count, 1);
         }
     }
 }

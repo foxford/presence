@@ -67,9 +67,10 @@ impl InsertQuery {
         sqlx::query!(
             r#"
             INSERT INTO agent_session_history
-                (agent_id, classroom_id, lifetime)
-            VALUES ($1, $2, $3)
+                (id, agent_id, classroom_id, lifetime)
+            VALUES ($1, $2, $3, $4)
             "#,
+            self.agent_session.id,
             self.agent_session.agent_id.clone() as AgentId,
             self.agent_session.classroom_id as ClassroomId,
             PgRange::from(self.agent_session.started_at..self.finished_at)

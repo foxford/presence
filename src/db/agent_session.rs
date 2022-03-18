@@ -212,3 +212,32 @@ impl GetQuery {
         .await
     }
 }
+
+pub struct GetAllByReplicaQuery {
+    replica_id: String,
+}
+
+impl GetAllByReplicaQuery {
+    pub fn new(replica_id: String) -> Self {
+        Self { replica_id }
+    }
+
+    pub async fn execute(&self, conn: &mut PgConnection) -> sqlx::Result<Vec<AgentSession>> {
+        sqlx::query_as!(
+            AgentSession,
+            r#"
+            SELECT
+                id,
+                agent_id AS "agent_id: AgentId",
+                classroom_id AS "classroom_id: ClassroomId",
+                replica_id,
+                started_at
+            FROM agent_session
+            WHERE replica_id = $1
+            "#,
+            self.replica_id,
+        )
+        .fetch_all(conn)
+        .await
+    }
+}
