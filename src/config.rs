@@ -29,8 +29,9 @@ pub struct WebSocketConfig {
 }
 
 pub fn load() -> Result<Config, config::ConfigError> {
-    let mut parser = config::Config::default();
-    parser.merge(config::File::with_name("presence"))?;
-    parser.merge(config::Environment::with_prefix("APP").separator("__"))?;
-    parser.try_into::<Config>()
+    config::Config::builder()
+        .add_source(config::File::with_name("presence"))
+        .add_source(config::Environment::with_prefix("APP").separator("__"))
+        .build()
+        .and_then(|c| c.try_deserialize::<Config>())
 }

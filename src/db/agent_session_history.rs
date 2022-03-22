@@ -40,6 +40,7 @@ impl CheckLifetimeOverlapQuery {
                 agent_id = $1
                 AND classroom_id = $2
                 AND lifetime && $3
+            LIMIT 1
             "#,
             self.agent_session.agent_id.clone() as AgentId,
             self.agent_session.classroom_id as ClassroomId,

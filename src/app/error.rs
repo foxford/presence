@@ -1,11 +1,10 @@
-use axum::body::{self};
+use axum::body::BoxBody;
 use axum::response::{IntoResponse, Response};
+use axum::Json;
 use http::StatusCode;
-use std::error::Error as StdError;
 use std::fmt;
 use std::sync::Arc;
 use svc_error::{extension::sentry, Error as SvcError};
-use tracing::error;
 
 struct ErrorKindProperties {
     status: StatusCode,
@@ -84,17 +83,14 @@ impl From<ErrorKind> for ErrorKindProperties {
 
 pub struct Error {
     kind: ErrorKind,
-    source: Box<dyn AsRef<dyn StdError + Send + Sync + 'static> + Send + Sync + 'static>,
+    err: Arc<anyhow::Error>,
 }
 
 impl Error {
-    pub fn new<E>(kind: ErrorKind, source: E) -> Self
-    where
-        E: AsRef<dyn StdError + Send + Sync + 'static> + Send + Sync + 'static,
-    {
+    pub fn new(kind: ErrorKind, err: anyhow::Error) -> Self {
         Self {
             kind,
-            source: Box::new(source),
+            err: Arc::new(err),
         }
     }
 
@@ -104,7 +100,7 @@ impl Error {
         SvcError::builder()
             .status(properties.status)
             .kind(properties.kind, properties.title)
-            .detail(&self.source.as_ref().as_ref().to_string())
+            .detail(&self.err.to_string())
             .build()
     }
 
@@ -113,21 +109,16 @@ impl Error {
             return;
         }
 
-        sentry::send(Arc::new(self.to_svc_error().into())).unwrap_or_else(|err| {
-            error!("Error sending error to Sentry: {}", err);
-        });
+        if let Err(e) = sentry::send(self.err.clone()) {
+            tracing::error!("Failed to send error to sentry, reason = {:?}", e);
+        }
     }
 }
 
 impl IntoResponse for Error {
-    fn into_response(self) -> Response {
+    fn into_response(self) -> Response<BoxBody> {
         let properties: ErrorKindProperties = self.kind.into();
-        let body = serde_json::to_string(&self.to_svc_error()).expect("Infallible");
-
-        Response::builder()
-            .status(properties.status.as_u16())
-            .body(body::boxed(body::Full::from(body)))
-            .unwrap()
+        (properties.status, Json(&self.to_svc_error())).into_response()
     }
 }
 
@@ -135,20 +126,14 @@ impl fmt::Debug for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Error")
             .field("kind", &self.kind)
-            .field("source", &self.source.as_ref().as_ref())
+            .field("source", &self.err)
             .finish()
     }
 }
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}: {}", self.kind, self.source.as_ref().as_ref())
-    }
-}
-
-impl StdError for Error {
-    fn source(&self) -> Option<&(dyn StdError + 'static)> {
-        Some(self.source.as_ref().as_ref())
+        write!(f, "{}: {}", self.kind, self.err)
     }
 }
 
@@ -161,7 +146,7 @@ impl From<svc_authz::Error> for Error {
 
         Self {
             kind,
-            source: Box::new(anyhow::Error::from(source)),
+            err: Arc::new(source.into()),
         }
     }
 }
@@ -170,9 +155,7 @@ pub trait ErrorExt<T> {
     fn error(self, kind: ErrorKind) -> Result<T, Error>;
 }
 
-impl<T, E: AsRef<dyn StdError + Send + Sync + 'static> + Send + Sync + 'static> ErrorExt<T>
-    for Result<T, E>
-{
+impl<T> ErrorExt<T> for Result<T, anyhow::Error> {
     fn error(self, kind: ErrorKind) -> Result<T, Error> {
         self.map_err(|source| Error::new(kind, source))
     }

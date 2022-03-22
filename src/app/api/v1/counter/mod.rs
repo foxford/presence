@@ -71,6 +71,7 @@ mod tests {
     use super::*;
     use crate::classroom::ClassroomId;
     use crate::db::agent_session;
+    use crate::db::agent_session::InsertResult;
     use crate::test_helpers::prelude::*;
     use axum::body::HttpBody;
     use axum::response::IntoResponse;
@@ -117,7 +118,7 @@ mod tests {
             let mut conn = db_pool.get_conn().await;
             let replica = "replica_id".to_string();
 
-            agent_session::InsertQuery::new(
+            match agent_session::InsertQuery::new(
                 agent_1.agent_id().to_owned(),
                 classroom_id,
                 replica.clone(),
@@ -125,9 +126,14 @@ mod tests {
             )
             .execute(&mut conn)
             .await
-            .expect("Failed to insert first agent session");
+            {
+                InsertResult::Ok(_) => {}
+                _ => {
+                    panic!("Failed to insert first agent session")
+                }
+            }
 
-            agent_session::InsertQuery::new(
+            match agent_session::InsertQuery::new(
                 agent_2.agent_id().to_owned(),
                 classroom_id,
                 replica,
@@ -135,7 +141,12 @@ mod tests {
             )
             .execute(&mut conn)
             .await
-            .expect("Failed to insert second agent session")
+            {
+                InsertResult::Ok(_) => {}
+                _ => {
+                    panic!("Failed to insert second agent session")
+                }
+            }
         };
 
         let agent = TestAgent::new("web", "user4", USR_AUDIENCE);

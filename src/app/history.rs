@@ -89,6 +89,7 @@ pub async fn move_old_session(
 mod tests {
     use super::*;
     use crate::classroom::ClassroomId;
+    use crate::db::agent_session::InsertResult;
     use crate::test_helpers::prelude::*;
     use uuid::Uuid;
 
@@ -103,7 +104,7 @@ mod tests {
         let session = {
             let mut conn = db_pool.get_conn().await;
 
-            agent_session::InsertQuery::new(
+            match agent_session::InsertQuery::new(
                 agent.agent_id().to_owned(),
                 classroom_id,
                 "replica".to_string(),
@@ -111,7 +112,12 @@ mod tests {
             )
             .execute(&mut conn)
             .await
-            .expect("Failed to insert an agent session")
+            {
+                InsertResult::Ok(s) => s,
+                _ => {
+                    panic!("Failed to insert an agent session")
+                }
+            }
         };
 
         let mut conn = db_pool.get_conn().await;
@@ -143,7 +149,7 @@ mod tests {
         let session = {
             let mut conn = db_pool.get_conn().await;
 
-            let session = agent_session::InsertQuery::new(
+            let session = match agent_session::InsertQuery::new(
                 agent.agent_id().to_owned(),
                 classroom_id,
                 "replica".to_string(),
@@ -151,7 +157,12 @@ mod tests {
             )
             .execute(&mut conn)
             .await
-            .expect("Failed to insert an agent session");
+            {
+                InsertResult::Ok(s) => s,
+                _ => {
+                    panic!("Failed to insert an agent session")
+                }
+            };
 
             agent_session_history::InsertQuery::new(session.clone(), OffsetDateTime::now_utc())
                 .execute(&mut conn)
