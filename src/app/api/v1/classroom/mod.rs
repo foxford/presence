@@ -18,7 +18,7 @@ use svc_agent::AgentId;
 use svc_authn::Authenticable;
 use svc_utils::extractors::AuthnExtractor;
 
-const MAX_LIMIT: usize = 25;
+const MAX_LIMIT: usize = 100;
 
 #[derive(Deserialize, Default)]
 pub struct Payload {

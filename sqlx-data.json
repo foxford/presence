@@ -1,5 +1,81 @@
 {
   "db": "PostgreSQL",
+  "03bd5679c834aa4682e41d93fe20f01ae37680478ebee30255c6125384678374": {
+    "describe": {
+      "columns": [
+        {
+          "name": "id",
+          "ordinal": 0,
+          "type_info": "Uuid"
+        },
+        {
+          "name": "agent_id: AgentId",
+          "ordinal": 1,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Composite": [
+                  [
+                    "account_id",
+                    {
+                      "Custom": {
+                        "kind": {
+                          "Composite": [
+                            [
+                              "label",
+                              "Text"
+                            ],
+                            [
+                              "audience",
+                              "Text"
+                            ]
+                          ]
+                        },
+                        "name": "account_id"
+                      }
+                    }
+                  ],
+                  [
+                    "label",
+                    "Text"
+                  ]
+                ]
+              },
+              "name": "agent_id"
+            }
+          }
+        },
+        {
+          "name": "classroom_id: ClassroomId",
+          "ordinal": 2,
+          "type_info": "Uuid"
+        },
+        {
+          "name": "replica_id",
+          "ordinal": 3,
+          "type_info": "Text"
+        },
+        {
+          "name": "started_at",
+          "ordinal": 4,
+          "type_info": "Timestamptz"
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Text"
+        ]
+      }
+    },
+    "query": "\n            SELECT\n                id,\n                agent_id AS \"agent_id: AgentId\",\n                classroom_id AS \"classroom_id: ClassroomId\",\n                replica_id,\n                started_at\n            FROM old_agent_session\n            WHERE replica_id = $1\n            "
+  },
   "1475ac53bb002ec3c7db42824a5711d6bee3a6e288da8fd1adb5d3c749c37660": {
     "describe": {
       "columns": [
@@ -204,25 +280,52 @@
     },
     "query": "\n            SELECT\n                classroom_id AS \"classroom_id: ClassroomId\",\n                COUNT(agent_id) AS \"count!\"\n            FROM agent_session\n            WHERE\n                classroom_id = ANY ($1)\n            GROUP BY classroom_id\n            "
   },
-  "4f598ac6cee09d966b088880dc5683938b6e7e608bd8d06c85a8a8851fffc1c7": {
+  "48e5bb172f0f431593aa8741bb287ca935fd1211eadd61ec38958dc627e66769": {
     "describe": {
-      "columns": [
-        {
-          "name": "id",
-          "ordinal": 0,
-          "type_info": "Uuid"
-        }
-      ],
-      "nullable": [
-        false
-      ],
+      "columns": [],
+      "nullable": [],
       "parameters": {
         "Left": [
-          "Text"
+          "Uuid",
+          {
+            "Custom": {
+              "kind": {
+                "Composite": [
+                  [
+                    "account_id",
+                    {
+                      "Custom": {
+                        "kind": {
+                          "Composite": [
+                            [
+                              "label",
+                              "Text"
+                            ],
+                            [
+                              "audience",
+                              "Text"
+                            ]
+                          ]
+                        },
+                        "name": "account_id"
+                      }
+                    }
+                  ],
+                  [
+                    "label",
+                    "Text"
+                  ]
+                ]
+              },
+              "name": "agent_id"
+            }
+          },
+          "Uuid",
+          "TstzRange"
         ]
       }
     },
-    "query": "\n            SELECT id\n            FROM old_agent_session\n            WHERE replica_id = $1\n            "
+    "query": "\n            INSERT INTO agent_session_history\n                (id, agent_id, classroom_id, lifetime)\n            VALUES ($1, $2, $3, $4)\n            "
   },
   "59d9108937e7b513c5fed0e996d73b9394d65ac9ee15dfece9287f457728d117": {
     "describe": {
@@ -302,52 +405,6 @@
     },
     "query": "\n            SELECT\n                COUNT(*) AS total\n            FROM\n                agent_session_history\n            "
   },
-  "8558dfb8a72bc984ee11661c6cd906f63f83ad597e10ea49a865114a9b28aad3": {
-    "describe": {
-      "columns": [],
-      "nullable": [],
-      "parameters": {
-        "Left": [
-          {
-            "Custom": {
-              "kind": {
-                "Composite": [
-                  [
-                    "account_id",
-                    {
-                      "Custom": {
-                        "kind": {
-                          "Composite": [
-                            [
-                              "label",
-                              "Text"
-                            ],
-                            [
-                              "audience",
-                              "Text"
-                            ]
-                          ]
-                        },
-                        "name": "account_id"
-                      }
-                    }
-                  ],
-                  [
-                    "label",
-                    "Text"
-                  ]
-                ]
-              },
-              "name": "agent_id"
-            }
-          },
-          "Uuid",
-          "TstzRange"
-        ]
-      }
-    },
-    "query": "\n            INSERT INTO agent_session_history\n                (agent_id, classroom_id, lifetime)\n            VALUES ($1, $2, $3)\n            "
-  },
   "881fd1814ce6c5cbfdf32037a76c4395339d4c6add971abf99509ccfc6e03770": {
     "describe": {
       "columns": [
@@ -426,6 +483,82 @@
     },
     "query": "\n            SELECT\n                id,\n                agent_id AS \"agent_id: AgentId\",\n                classroom_id AS \"classroom_id: ClassroomId\",\n                replica_id,\n                started_at\n            FROM agent_session\n            WHERE\n                agent_id = $1\n                AND classroom_id = $2\n                AND replica_id = $3\n            "
   },
+  "9f23d35855a8ec4f201f631e6848557780556445167a0abb2db313336c0a76ae": {
+    "describe": {
+      "columns": [
+        {
+          "name": "id",
+          "ordinal": 0,
+          "type_info": "Uuid"
+        },
+        {
+          "name": "agent_id: AgentId",
+          "ordinal": 1,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Composite": [
+                  [
+                    "account_id",
+                    {
+                      "Custom": {
+                        "kind": {
+                          "Composite": [
+                            [
+                              "label",
+                              "Text"
+                            ],
+                            [
+                              "audience",
+                              "Text"
+                            ]
+                          ]
+                        },
+                        "name": "account_id"
+                      }
+                    }
+                  ],
+                  [
+                    "label",
+                    "Text"
+                  ]
+                ]
+              },
+              "name": "agent_id"
+            }
+          }
+        },
+        {
+          "name": "classroom_id: ClassroomId",
+          "ordinal": 2,
+          "type_info": "Uuid"
+        },
+        {
+          "name": "replica_id",
+          "ordinal": 3,
+          "type_info": "Text"
+        },
+        {
+          "name": "started_at",
+          "ordinal": 4,
+          "type_info": "Timestamptz"
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Text"
+        ]
+      }
+    },
+    "query": "\n            SELECT\n                id,\n                agent_id AS \"agent_id: AgentId\",\n                classroom_id AS \"classroom_id: ClassroomId\",\n                replica_id,\n                started_at\n            FROM agent_session\n            WHERE replica_id = $1\n            "
+  },
   "c933897bae1096d9046189b27ec5f1baa4c6d8fff3637de5c2c0a0d553ddf67a": {
     "describe": {
       "columns": [
@@ -456,7 +589,7 @@
     },
     "query": "\n            DELETE FROM\n                agent_session\n            WHERE\n                id = $1\n            "
   },
-  "f90580b15aa803d5a14cf92476f0f608d7bec4341172a7e19b89843378eb57bf": {
+  "e5e22252e1c8b3447c19b1321d6556236c1a7c2a37567bbcd4e9d8d78b7906c0": {
     "describe": {
       "columns": [
         {
@@ -482,6 +615,6 @@
         ]
       }
     },
-    "query": "\n            SELECT\n                id, lifetime\n            FROM agent_session_history\n            WHERE\n                agent_id = $1\n                AND classroom_id = $2\n                AND lifetime && $3\n            "
+    "query": "\n            SELECT\n                id, lifetime\n            FROM agent_session_history\n            WHERE\n                agent_id = $1\n                AND classroom_id = $2\n                AND lifetime && $3\n            LIMIT 1\n            "
   }
 }
