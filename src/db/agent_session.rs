@@ -2,7 +2,7 @@ use crate::classroom::ClassroomId;
 use serde_derive::Serialize;
 use sqlx::postgres::PgQueryResult;
 use sqlx::types::time::OffsetDateTime;
-use sqlx::PgConnection;
+use sqlx::{Error, PgConnection};
 use std::collections::HashMap;
 use svc_agent::AgentId;
 use uuid::Uuid;
@@ -23,6 +23,12 @@ pub struct InsertQuery {
     started_at: OffsetDateTime,
 }
 
+pub enum InsertResult {
+    Ok(AgentSession),
+    Error(Error),
+    UniqIdsConstraintError,
+}
+
 impl InsertQuery {
     pub fn new(
         agent_id: AgentId,
@@ -38,8 +44,8 @@ impl InsertQuery {
         }
     }
 
-    pub async fn execute(&self, conn: &mut PgConnection) -> sqlx::Result<AgentSession> {
-        sqlx::query_as!(
+    pub async fn execute(&self, conn: &mut PgConnection) -> InsertResult {
+        let result = sqlx::query_as!(
             AgentSession,
             r#"
             INSERT INTO agent_session
@@ -58,7 +64,21 @@ impl InsertQuery {
             self.started_at
         )
         .fetch_one(conn)
-        .await
+        .await;
+
+        match result {
+            Ok(agent_session) => InsertResult::Ok(agent_session),
+            Err(sqlx::Error::Database(err)) => {
+                if let Some(constraint) = err.constraint() {
+                    if constraint == "uniq_classroom_id_agent_id" {
+                        return InsertResult::UniqIdsConstraintError;
+                    }
+                }
+
+                InsertResult::Error(Error::Database(err))
+            }
+            Err(err) => InsertResult::Error(err),
+        }
     }
 }
 

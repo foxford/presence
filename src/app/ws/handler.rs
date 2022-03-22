@@ -229,6 +229,8 @@ async fn create_agent_session<S: State>(
     classroom_id: ClassroomId,
     agent_id: AgentId,
 ) -> Result<AgentSession, ConnectError> {
+    use crate::db::agent_session::InsertResult;
+
     let mut conn = match state.get_conn().await {
         Ok(conn) => conn,
         Err(err) => {
@@ -245,28 +247,27 @@ async fn create_agent_session<S: State>(
     );
 
     match insert_query.execute(&mut conn).await {
-        Ok(agent_session) => Ok(agent_session),
-        Err(sqlx::Error::Database(err)) => {
-            if let Some(constraint) = err.constraint() {
-                if constraint == "uniq_classroom_id_agent_id" {
-                    if let Err(err) =
-                        mark_prev_session_as_outdated(state.clone(), classroom_id, agent_id.clone())
-                            .await
-                    {
-                        error!(error = %err, "Failed to mark session as outdated");
-                        return Err(ConnectError::DbQueryFailed);
-                    }
-
-                    return create_agent_session(state, classroom_id, agent_id).await;
-                }
-            }
-
+        InsertResult::Ok(agent_session) => Ok(agent_session),
+        InsertResult::Error(err) => {
             error!(error = %err, "Failed to create an agent session");
             Err(ConnectError::DbQueryFailed)
         }
-        Err(err) => {
-            error!(error = %err, "Failed to create an agent session");
-            Err(ConnectError::DbQueryFailed)
+        InsertResult::UniqIdsConstraintError => {
+            if let Err(err) =
+                mark_prev_session_as_outdated(state.clone(), classroom_id, agent_id.clone()).await
+            {
+                error!(error = %err, "Failed to mark session as outdated");
+                return Err(ConnectError::DbQueryFailed);
+            }
+
+            // Attempt to create a new agent session again
+            return match insert_query.execute(&mut conn).await {
+                InsertResult::Ok(agent_session) => Ok(agent_session),
+                _ => {
+                    error!("Failed to create an agent session");
+                    Err(ConnectError::DbQueryFailed)
+                }
+            };
         }
     }
 }

@@ -28,7 +28,7 @@ pub enum Command {
 }
 
 pub async fn run(db: PgPool, authz_cache: Option<AuthzCache>) -> Result<()> {
-    let replica_id = var("REPLICA_ID").expect("REPLICA_ID must be specified");
+    let replica_id = var("APP_AGENT_LABEL").expect("APP_AGENT_LABEL must be specified");
 
     let config = crate::config::load().context("Failed to load config")?;
     info!("App config: {:?}", config);
@@ -101,8 +101,6 @@ async fn manage_agent_sessions<S: State>(
     mut cmd_rx: UnboundedReceiver<Command>,
     mut shutdown_rx: Receiver<()>,
 ) {
-    let mut conn = state.get_conn().await.expect("Failed to get db connection");
-
     let mut check_interval = interval(state.config().websocket.check_old_connection_interval);
     check_interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
 
@@ -123,6 +121,14 @@ async fn manage_agent_sessions<S: State>(
                 }
             }
             _ = check_interval.tick() => {
+                let mut conn = match state.get_conn().await {
+                    Ok(conn) => conn,
+                    Err(e) => {
+                        error!(error = %e, "Failed to get db connection");
+                        continue;
+                    }
+                };
+
                 match db::old_agent_session::GetAllByReplicaQuery::new(state.replica_id())
                     .execute(&mut conn)
                     .await
