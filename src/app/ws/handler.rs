@@ -116,18 +116,10 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
                             None => info!("An agent closed connection"),
                         }
 
-                        if let Err(e) = state.cmd_sender().send(Command::Terminate(agent_session.id)) {
-                            error!(error = %e, "Failed to terminate session_id: {:?}", agent_session.id);
-                        }
-
                         break;
                     },
                     Err(e) => {
                         error!(error = %e, "An error occurred when receiving a message");
-
-                        if let Err(e) = state.cmd_sender().send(Command::Terminate(agent_session.id)) {
-                            error!(error = %e, "Failed to terminate session_id: {:?}", agent_session.id);
-                        }
 
                         break;
                     },
@@ -141,10 +133,6 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
                 if sender.send(Message::Ping(Vec::new())).await.is_err() {
                     info!("An agent disconnected (ping not sent)");
 
-                    if let Err(e) = state.cmd_sender().send(Command::Terminate(agent_session.id)) {
-                        error!(error = %e, "Failed to terminate session_id: {:?}", agent_session.id);
-                    }
-
                     break;
                 }
 
@@ -156,10 +144,6 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
                 if ping_sent {
                     info!("Connection is closed (pong timeout exceeded)");
                     let _ = sender.close().await;
-
-                    if let Err(e) = state.cmd_sender().send(Command::Terminate(agent_session.id)) {
-                        error!(error = %e, "Failed to terminate session_id: {:?}", agent_session.id);
-                    }
 
                     break;
                 }
@@ -176,6 +160,13 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
                 return;
             }
         }
+    }
+
+    if let Err(e) = state
+        .cmd_sender()
+        .send(Command::Terminate(agent_session.id))
+    {
+        error!(error = %e, "Failed to terminate session_id: {:?}", agent_session.id);
     }
 
     if let Err(err) = move_session_to_history(state, agent_session, SessionKind::Active).await {
@@ -286,7 +277,7 @@ async fn mark_prev_session_as_outdated<S: State>(
         .await
         .map_err(|e| anyhow!("Failed to get agent session: {:?}", e))?;
 
-    match agent_session::InsertQuery::new(
+    if let InsertResult::Error(err) = agent_session::InsertQuery::new(
         session.agent_id,
         session.classroom_id,
         session.replica_id,
@@ -296,10 +287,7 @@ async fn mark_prev_session_as_outdated<S: State>(
     .execute(&mut tx)
     .await
     {
-        InsertResult::Error(err) => {
-            return Err(anyhow!("Failed to create old_agent_session: {:?}", err));
-        }
-        _ => {}
+        return Err(anyhow!("Failed to create old_agent_session: {:?}", err));
     };
 
     agent_session::DeleteQuery::new(session.id, SessionKind::Active)
