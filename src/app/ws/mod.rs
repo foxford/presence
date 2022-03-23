@@ -1,9 +1,9 @@
+use crate::classroom::ClassroomId;
 use http::StatusCode;
 use serde_derive::{Deserialize, Serialize};
 use svc_error::Error as SvcError;
 
-use crate::classroom::ClassroomId;
-pub(crate) use handler::handler;
+pub use handler::handler;
 
 mod handler;
 

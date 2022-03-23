@@ -1,8 +1,9 @@
-use crate::app::api::v1;
-use crate::app::ws;
-use crate::state::{AppState, State};
-use axum::extract::Extension;
+use crate::{
+    app::{api::v1, ws},
+    state::{AppState, State},
+};
 use axum::{
+    extract::Extension,
     routing::{get, post},
     Router,
 };

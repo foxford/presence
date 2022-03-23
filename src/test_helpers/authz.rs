@@ -1,5 +1,4 @@
-use crate::authz::AuthzObject;
-use crate::test_helpers::USR_AUDIENCE;
+use crate::{authz::AuthzObject, test_helpers::USR_AUDIENCE};
 use svc_authn::{AccountId, Authenticable};
 use svc_authz::{
     ClientMap, Config, ConfigMap, IntentObject, LocalWhitelistConfig, LocalWhitelistRecord,

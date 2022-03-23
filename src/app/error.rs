@@ -1,9 +1,10 @@
-use axum::body::BoxBody;
-use axum::response::{IntoResponse, Response};
-use axum::Json;
+use axum::{
+    body::BoxBody,
+    response::{IntoResponse, Response},
+    Json,
+};
 use http::StatusCode;
-use std::fmt;
-use std::sync::Arc;
+use std::{fmt, sync::Arc};
 use svc_error::{extension::sentry, Error as SvcError};
 
 struct ErrorKindProperties {

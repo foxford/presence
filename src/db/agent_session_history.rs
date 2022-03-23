@@ -1,9 +1,9 @@
-use crate::classroom::ClassroomId;
-use crate::db::agent_session::AgentSession;
-use sqlx::postgres::types::PgRange;
-use sqlx::postgres::PgQueryResult;
-use sqlx::types::time::OffsetDateTime;
-use sqlx::PgConnection;
+use crate::{classroom::ClassroomId, db::agent_session::AgentSession};
+use sqlx::{
+    postgres::{types::PgRange, PgQueryResult},
+    types::time::OffsetDateTime,
+    PgConnection,
+};
 use std::collections::Bound;
 use svc_agent::AgentId;
 use uuid::Uuid;

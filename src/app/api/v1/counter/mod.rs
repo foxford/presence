@@ -1,8 +1,12 @@
-use crate::app::api::AppResult;
-use crate::app::error::{ErrorExt, ErrorKind};
-use crate::authz::AuthzObject;
-use crate::db::agent_session::AgentCounter;
-use crate::state::State;
+use crate::{
+    app::{
+        api::AppResult,
+        error::{ErrorExt, ErrorKind},
+    },
+    authz::AuthzObject,
+    db::agent_session::AgentCounter,
+    state::State,
+};
 use anyhow::Context;
 use axum::{body, extract::Extension, Json};
 use http::Response;
@@ -69,12 +73,12 @@ async fn do_count_agents<S: State>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::classroom::ClassroomId;
-    use crate::db::agent_session;
-    use crate::db::agent_session::SessionKind;
-    use crate::test_helpers::prelude::*;
-    use axum::body::HttpBody;
-    use axum::response::IntoResponse;
+    use crate::{
+        classroom::ClassroomId,
+        db::agent_session::{self, SessionKind},
+        test_helpers::prelude::*,
+    };
+    use axum::{body::HttpBody, response::IntoResponse};
     use serde_json::Value;
     use sqlx::types::time::OffsetDateTime;
     use std::collections::HashMap;

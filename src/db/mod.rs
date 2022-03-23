@@ -1,6 +1,5 @@
 use sqlx::{postgres::PgPoolOptions, PgPool};
-use std::env::var;
-use std::time::Duration;
+use std::{env::var, time::Duration};
 
 pub mod agent_session;
 pub mod agent_session_history;

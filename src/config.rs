@@ -1,7 +1,6 @@
 use serde_derive::Deserialize;
 use std::{net::SocketAddr, time::Duration};
-use svc_authn::jose::ConfigMap as AuthnConfig;
-use svc_authn::AccountId;
+use svc_authn::{jose::ConfigMap as AuthnConfig, AccountId};
 use svc_authz::ConfigMap as Authz;
 use svc_error::extension::sentry::Config as SentryConfig;
 

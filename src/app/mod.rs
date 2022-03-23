@@ -1,15 +1,16 @@
-use crate::db::agent_session::SessionKind;
 use crate::{
     authz::AuthzCache,
-    db::{self, agent_session},
+    db::{
+        self,
+        agent_session::{self, SessionKind},
+    },
     state::{AppState, State},
 };
 use anyhow::{anyhow, Context, Result};
 use futures_util::StreamExt;
 use signal_hook::consts::TERM_SIGNALS;
 use sqlx::PgPool;
-use std::collections::HashMap;
-use std::env::var;
+use std::{collections::HashMap, env::var};
 use tokio::{
     sync::{mpsc, mpsc::UnboundedReceiver, oneshot, oneshot::Receiver},
     time::{interval, MissedTickBehavior},

@@ -1,7 +1,9 @@
-use crate::app::Command;
-use crate::config::{Config, WebSocketConfig};
-use crate::state::State;
-use crate::test_helpers::prelude::*;
+use crate::{
+    app::Command,
+    config::{Config, WebSocketConfig},
+    state::State,
+    test_helpers::prelude::*,
+};
 use anyhow::Result;
 use async_trait::async_trait;
 use sqlx::{pool::PoolConnection, Postgres};

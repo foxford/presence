@@ -1,11 +1,10 @@
-use crate::db::agent_session::SessionKind;
 use crate::db::{
+    agent_session::SessionKind,
     agent_session::{self, AgentSession},
     agent_session_history,
 };
 use anyhow::{anyhow, Result};
-use sqlx::pool::PoolConnection;
-use sqlx::{types::time::OffsetDateTime, Connection, Postgres};
+use sqlx::{pool::PoolConnection, types::time::OffsetDateTime, Connection, Postgres};
 use std::ops::Bound;
 
 pub async fn move_session(
@@ -64,8 +63,7 @@ pub async fn move_session(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::classroom::ClassroomId;
-    use crate::test_helpers::prelude::*;
+    use crate::{classroom::ClassroomId, test_helpers::prelude::*};
     use uuid::Uuid;
 
     #[tokio::test]

@@ -1,4 +1,3 @@
-use crate::db::agent_session::{InsertResult, SessionKind};
 use crate::{
     app::{
         history,
@@ -7,7 +6,7 @@ use crate::{
     },
     authz::AuthzObject,
     classroom::ClassroomId,
-    db::agent_session::{self, AgentSession},
+    db::agent_session::{self, AgentSession, InsertResult, SessionKind},
     state::State,
 };
 use anyhow::{anyhow, Result};
@@ -32,7 +31,7 @@ use tokio::{
 };
 use tracing::{error, info};
 
-pub(crate) async fn handler<S: State>(
+pub async fn handler<S: State>(
     ws: WebSocketUpgrade,
     Extension(state): Extension<S>,
     Extension(authn): Extension<Arc<ConfigMap>>,

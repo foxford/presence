@@ -1,10 +1,9 @@
 use crate::classroom::ClassroomId;
 use serde_derive::Serialize;
-use sqlx::postgres::PgQueryResult;
-use sqlx::types::time::OffsetDateTime;
-use sqlx::{query, query_as, Error, PgConnection};
-use std::collections::HashMap;
-use std::fmt::Formatter;
+use sqlx::{
+    postgres::PgQueryResult, query, query_as, types::time::OffsetDateTime, Error, PgConnection,
+};
+use std::{collections::HashMap, fmt::Formatter};
 use svc_agent::AgentId;
 use uuid::Uuid;
 

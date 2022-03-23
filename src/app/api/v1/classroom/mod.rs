@@ -1,15 +1,17 @@
-use crate::app::{
-    api::AppResult,
-    error::{ErrorExt, ErrorKind},
+use crate::{
+    app::{
+        api::AppResult,
+        error::{ErrorExt, ErrorKind},
+    },
+    authz::AuthzObject,
+    classroom::ClassroomId,
+    db::agent_session::AgentList,
+    state::State,
 };
-use crate::authz::AuthzObject;
-use crate::classroom::ClassroomId;
-use crate::db::agent_session::AgentList;
-use crate::state::State;
 use anyhow::Context;
-use axum::extract::Query;
 use axum::{
     body,
+    extract::Query,
     extract::{Extension, Path},
 };
 use http::Response;
@@ -84,12 +86,12 @@ async fn do_list_agents<S: State>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::classroom::ClassroomId;
-    use crate::db::agent_session;
-    use crate::db::agent_session::{Agent, SessionKind};
-    use crate::test_helpers::prelude::*;
-    use axum::body::HttpBody;
-    use axum::response::IntoResponse;
+    use crate::{
+        classroom::ClassroomId,
+        db::agent_session::{self, Agent, SessionKind},
+        test_helpers::prelude::*,
+    };
+    use axum::{body::HttpBody, response::IntoResponse};
     use serde_json::Value;
     use sqlx::types::time::OffsetDateTime;
     use uuid::Uuid;
