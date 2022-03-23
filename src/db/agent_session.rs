@@ -2,12 +2,28 @@ use crate::classroom::ClassroomId;
 use serde_derive::Serialize;
 use sqlx::postgres::PgQueryResult;
 use sqlx::types::time::OffsetDateTime;
-use sqlx::{Error, PgConnection};
+use sqlx::{query, query_as, Error, PgConnection};
 use std::collections::HashMap;
+use std::fmt::Formatter;
 use svc_agent::AgentId;
 use uuid::Uuid;
 
-#[derive(Clone, Debug)]
+pub enum SessionKind {
+    Active,
+    Old,
+}
+
+impl std::fmt::Display for SessionKind {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let name = match self {
+            SessionKind::Active => "agent_session",
+            SessionKind::Old => "old_agent_session",
+        };
+        write!(f, "{}", name)
+    }
+}
+
+#[derive(Clone, Debug, sqlx::FromRow)]
 pub struct AgentSession {
     pub id: Uuid,
     pub agent_id: AgentId,
@@ -21,6 +37,7 @@ pub struct InsertQuery {
     classroom_id: ClassroomId,
     replica_id: String,
     started_at: OffsetDateTime,
+    kind: SessionKind,
 }
 
 pub enum InsertResult {
@@ -29,40 +46,57 @@ pub enum InsertResult {
     UniqIdsConstraintError,
 }
 
+#[cfg(test)]
+impl InsertResult {
+    pub fn expect(&self, msg: &str) -> AgentSession {
+        match self {
+            InsertResult::Ok(s) => s.to_owned(),
+            InsertResult::Error(err) => {
+                panic!("{}, error: {:?}", msg, err)
+            }
+            _ => {
+                panic!("{}", msg)
+            }
+        }
+    }
+}
+
 impl InsertQuery {
     pub fn new(
         agent_id: AgentId,
         classroom_id: ClassroomId,
         replica_id: String,
         started_at: OffsetDateTime,
+        kind: SessionKind,
     ) -> Self {
         Self {
             agent_id,
             classroom_id,
             replica_id,
             started_at,
+            kind,
         }
     }
 
     pub async fn execute(&self, conn: &mut PgConnection) -> InsertResult {
-        let result = sqlx::query_as!(
-            AgentSession,
+        let result = query_as::<_, AgentSession>(&format!(
             r#"
-            INSERT INTO agent_session
+            INSERT INTO {}
                 (agent_id, classroom_id, replica_id, started_at)
             VALUES ($1, $2, $3, $4)
             RETURNING
                 id,
-                agent_id AS "agent_id: AgentId",
-                classroom_id AS "classroom_id: ClassroomId",
+                agent_id,
+                classroom_id,
                 replica_id,
                 started_at
             "#,
-            self.agent_id.clone() as AgentId,
-            self.classroom_id as ClassroomId,
-            self.replica_id,
-            self.started_at
-        )
+            self.kind
+        ))
+        .bind(self.agent_id.clone())
+        .bind(self.classroom_id)
+        .bind(self.replica_id.clone())
+        .bind(self.started_at)
         .fetch_one(conn)
         .await;
 
@@ -84,25 +118,19 @@ impl InsertQuery {
 
 pub struct DeleteQuery {
     id: Uuid,
+    kind: SessionKind,
 }
 
 impl DeleteQuery {
-    pub fn new(id: Uuid) -> Self {
-        Self { id }
+    pub fn new(id: Uuid, kind: SessionKind) -> Self {
+        Self { id, kind }
     }
 
     pub async fn execute(&self, conn: &mut PgConnection) -> sqlx::Result<PgQueryResult> {
-        sqlx::query!(
-            r#"
-            DELETE FROM
-                agent_session
-            WHERE
-                id = $1
-            "#,
-            self.id
-        )
-        .execute(conn)
-        .await
+        query(&format!(r#"DELETE FROM {} WHERE id = $1"#, self.kind))
+            .bind(self.id)
+            .execute(conn)
+            .await
     }
 }
 
@@ -235,16 +263,16 @@ impl GetQuery {
 
 pub struct GetAllByReplicaQuery {
     replica_id: String,
+    kind: SessionKind,
 }
 
 impl GetAllByReplicaQuery {
-    pub fn new(replica_id: String) -> Self {
-        Self { replica_id }
+    pub fn new(replica_id: String, kind: SessionKind) -> Self {
+        Self { replica_id, kind }
     }
 
     pub async fn execute(&self, conn: &mut PgConnection) -> sqlx::Result<Vec<AgentSession>> {
-        sqlx::query_as!(
-            AgentSession,
+        query_as::<_, AgentSession>(&format!(
             r#"
             SELECT
                 id,
@@ -252,11 +280,12 @@ impl GetAllByReplicaQuery {
                 classroom_id AS "classroom_id: ClassroomId",
                 replica_id,
                 started_at
-            FROM agent_session
+            FROM {}
             WHERE replica_id = $1
             "#,
-            self.replica_id,
-        )
+            self.kind
+        ))
+        .bind(self.replica_id.clone())
         .fetch_all(conn)
         .await
     }

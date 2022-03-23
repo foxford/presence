@@ -1,3 +1,4 @@
+use crate::db::agent_session::{InsertResult, SessionKind};
 use crate::{
     app::{
         history,
@@ -6,14 +7,10 @@ use crate::{
     },
     authz::AuthzObject,
     classroom::ClassroomId,
-    db::{
-        agent_session::{self, AgentSession},
-        old_agent_session,
-    },
+    db::agent_session::{self, AgentSession},
     state::State,
 };
 use anyhow::{anyhow, Result};
-use async_recursion::async_recursion;
 use axum::{
     extract::{
         ws::{Message, WebSocket},
@@ -173,8 +170,8 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
                 info!("Old connection is closed");
                 let _ = sender.close().await;
 
-                if let Err(e) = move_old_session_to_history(state, agent_session).await {
-                    error!(error = %e);
+                if let Err(err) = move_session_to_history(state, agent_session, SessionKind::Old).await {
+                    error!(error = %err, "Failed to move session to history");
                 }
 
                 return;
@@ -182,7 +179,7 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
         }
     }
 
-    if let Err(err) = move_session_to_history(state, agent_session).await {
+    if let Err(err) = move_session_to_history(state, agent_session, SessionKind::Active).await {
         error!(error = %err, "Failed to move session to history");
     }
 }
@@ -223,14 +220,11 @@ async fn handle_authn_message<S: State>(
     }
 }
 
-#[async_recursion]
 async fn create_agent_session<S: State>(
     state: S,
     classroom_id: ClassroomId,
     agent_id: AgentId,
 ) -> Result<AgentSession, ConnectError> {
-    use crate::db::agent_session::InsertResult;
-
     let mut conn = match state.get_conn().await {
         Ok(conn) => conn,
         Err(err) => {
@@ -244,6 +238,7 @@ async fn create_agent_session<S: State>(
         classroom_id,
         state.replica_id(),
         OffsetDateTime::now_utc(),
+        SessionKind::Active,
     );
 
     match insert_query.execute(&mut conn).await {
@@ -292,12 +287,23 @@ async fn mark_prev_session_as_outdated<S: State>(
         .await
         .map_err(|e| anyhow!("Failed to get agent session: {:?}", e))?;
 
-    old_agent_session::InsertQuery::new(session.clone())
-        .execute(&mut tx)
-        .await
-        .map_err(|e| anyhow!("Failed to create old_agent_session: {:?}", e))?;
+    match agent_session::InsertQuery::new(
+        session.agent_id,
+        session.classroom_id,
+        session.replica_id,
+        session.started_at,
+        SessionKind::Old,
+    )
+    .execute(&mut tx)
+    .await
+    {
+        InsertResult::Error(err) => {
+            return Err(anyhow!("Failed to create old_agent_session: {:?}", err));
+        }
+        _ => {}
+    };
 
-    agent_session::DeleteQuery::new(session.id)
+    agent_session::DeleteQuery::new(session.id, SessionKind::Active)
         .execute(&mut tx)
         .await
         .map_err(|e| anyhow!("Failed to delete agent_session: {:?}", e))?;
@@ -348,27 +354,17 @@ fn make_response(response: Response) -> String {
     serde_json::to_string(&response).unwrap_or_default()
 }
 
-async fn move_session_to_history<S: State>(state: S, agent_session: AgentSession) -> Result<()> {
-    let mut conn = state
-        .get_conn()
-        .await
-        .map_err(|e| anyhow!("Failed to get db connection: {:?}", e))?;
-
-    history::move_session(&mut conn, agent_session).await?;
-
-    Ok(())
-}
-
-async fn move_old_session_to_history<S: State>(
+async fn move_session_to_history<S: State>(
     state: S,
     agent_session: AgentSession,
+    kind: SessionKind,
 ) -> Result<()> {
     let mut conn = state
         .get_conn()
         .await
         .map_err(|e| anyhow!("Failed to get db connection: {:?}", e))?;
 
-    history::move_old_session(&mut conn, agent_session).await?;
+    history::move_session(&mut conn, agent_session, kind).await?;
 
     Ok(())
 }

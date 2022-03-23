@@ -86,7 +86,7 @@ mod tests {
     use super::*;
     use crate::classroom::ClassroomId;
     use crate::db::agent_session;
-    use crate::db::agent_session::{Agent, InsertResult};
+    use crate::db::agent_session::{Agent, SessionKind};
     use crate::test_helpers::prelude::*;
     use axum::body::HttpBody;
     use axum::response::IntoResponse;
@@ -133,20 +133,16 @@ mod tests {
         let _ = {
             let mut conn = db_pool.get_conn().await;
 
-            match agent_session::InsertQuery::new(
+            agent_session::InsertQuery::new(
                 agent.agent_id().to_owned(),
                 classroom_id,
                 "replica".to_string(),
                 OffsetDateTime::now_utc(),
+                SessionKind::Active,
             )
             .execute(&mut conn)
             .await
-            {
-                InsertResult::Ok(_) => {}
-                _ => {
-                    panic!("Failed to insert an agent session")
-                }
-            }
+            .expect("Failed to insert an agent session")
         };
 
         let mut authz = TestAuthz::new();

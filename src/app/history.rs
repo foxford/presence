@@ -1,6 +1,7 @@
+use crate::db::agent_session::SessionKind;
 use crate::db::{
     agent_session::{self, AgentSession},
-    agent_session_history, old_agent_session,
+    agent_session_history,
 };
 use anyhow::{anyhow, Result};
 use sqlx::pool::PoolConnection;
@@ -10,6 +11,7 @@ use std::ops::Bound;
 pub async fn move_session(
     conn: &mut PoolConnection<Postgres>,
     session: AgentSession,
+    kind: SessionKind,
 ) -> Result<()> {
     let mut tx = conn
         .begin()
@@ -47,36 +49,10 @@ pub async fn move_session(
         }
     }
 
-    agent_session::DeleteQuery::new(session.id)
+    agent_session::DeleteQuery::new(session.id, kind)
         .execute(&mut tx)
         .await
         .map_err(|e| anyhow!("Failed to delete agent_session: {:?}", e))?;
-
-    tx.commit()
-        .await
-        .map_err(|e| anyhow!("Failed to commit transaction: {:?}", e))?;
-
-    Ok(())
-}
-
-pub async fn move_old_session(
-    conn: &mut PoolConnection<Postgres>,
-    session: AgentSession,
-) -> Result<()> {
-    let mut tx = conn
-        .begin()
-        .await
-        .map_err(|e| anyhow!("Failed to acquire transaction: {:?}", e))?;
-
-    agent_session_history::InsertQuery::new(session.clone(), OffsetDateTime::now_utc())
-        .execute(&mut tx)
-        .await
-        .map_err(|e| anyhow!("Failed to create agent_session_history: {:?}", e))?;
-
-    old_agent_session::DeleteQuery::new(session.id)
-        .execute(&mut tx)
-        .await
-        .map_err(|e| anyhow!("Failed to delete old_agent_session: {:?}", e))?;
 
     tx.commit()
         .await
@@ -89,7 +65,6 @@ pub async fn move_old_session(
 mod tests {
     use super::*;
     use crate::classroom::ClassroomId;
-    use crate::db::agent_session::InsertResult;
     use crate::test_helpers::prelude::*;
     use uuid::Uuid;
 
@@ -104,24 +79,20 @@ mod tests {
         let session = {
             let mut conn = db_pool.get_conn().await;
 
-            match agent_session::InsertQuery::new(
+            agent_session::InsertQuery::new(
                 agent.agent_id().to_owned(),
                 classroom_id,
                 "replica".to_string(),
                 OffsetDateTime::now_utc(),
+                SessionKind::Active,
             )
             .execute(&mut conn)
             .await
-            {
-                InsertResult::Ok(s) => s,
-                _ => {
-                    panic!("Failed to insert an agent session")
-                }
-            }
+            .expect("Failed to insert an agent session")
         };
 
         let mut conn = db_pool.get_conn().await;
-        move_session(&mut conn, session)
+        move_session(&mut conn, session, SessionKind::Active)
             .await
             .expect("Failed to move session to history");
 
@@ -149,20 +120,16 @@ mod tests {
         let session = {
             let mut conn = db_pool.get_conn().await;
 
-            let session = match agent_session::InsertQuery::new(
+            let session = agent_session::InsertQuery::new(
                 agent.agent_id().to_owned(),
                 classroom_id,
                 "replica".to_string(),
                 OffsetDateTime::now_utc(),
+                SessionKind::Active,
             )
             .execute(&mut conn)
             .await
-            {
-                InsertResult::Ok(s) => s,
-                _ => {
-                    panic!("Failed to insert an agent session")
-                }
-            };
+            .expect("Failed to insert an agent session");
 
             agent_session_history::InsertQuery::new(session.clone(), OffsetDateTime::now_utc())
                 .execute(&mut conn)
@@ -173,7 +140,7 @@ mod tests {
         };
 
         let mut conn = db_pool.get_conn().await;
-        move_session(&mut conn, session)
+        move_session(&mut conn, session, SessionKind::Active)
             .await
             .expect("Failed to move session to history");
 

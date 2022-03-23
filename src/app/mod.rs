@@ -1,6 +1,7 @@
+use crate::db::agent_session::SessionKind;
 use crate::{
     authz::AuthzCache,
-    db::{self, agent_session, old_agent_session},
+    db::{self, agent_session},
     state::{AppState, State},
 };
 use anyhow::{anyhow, Context, Result};
@@ -129,7 +130,7 @@ async fn manage_agent_sessions<S: State>(
                     }
                 };
 
-                match db::old_agent_session::GetAllByReplicaQuery::new(state.replica_id())
+                match db::agent_session::GetAllByReplicaQuery::new(state.replica_id(), SessionKind::Old)
                     .execute(&mut conn)
                     .await
                 {
@@ -159,40 +160,27 @@ async fn move_sessions_to_history<S: State>(state: S, replica_id: String) -> Res
         .await
         .map_err(|e| anyhow!("Failed to get db connection: {:?}", e))?;
 
-    let sessions = agent_session::GetAllByReplicaQuery::new(replica_id.clone())
-        .execute(&mut conn)
-        .await
-        .map_err(|e| anyhow!("Failed to get agent sessions: {:?}", e))?;
+    let sessions =
+        agent_session::GetAllByReplicaQuery::new(replica_id.clone(), SessionKind::Active)
+            .execute(&mut conn)
+            .await
+            .map_err(|e| anyhow!("Failed to get agent sessions: {:?}", e))?;
 
-    for s in sessions.clone() {
-        history::move_session(&mut conn, s)
+    for s in sessions {
+        history::move_session(&mut conn, s, SessionKind::Active)
             .await
             .map_err(|e| anyhow!("Failed to move agent sessions: {:?}", e))?;
     }
 
-    let old_sessions = old_agent_session::GetAllByReplicaQuery::new(replica_id)
+    let old_sessions = agent_session::GetAllByReplicaQuery::new(replica_id, SessionKind::Old)
         .execute(&mut conn)
         .await
         .map_err(|e| anyhow!("Failed to get old agent sessions: {:?}", e))?;
 
-    for s in old_sessions.clone() {
-        history::move_old_session(&mut conn, s)
-            .await
-            .map_err(|e| anyhow!("Failed to move agent sessions: {:?}", e))?;
-    }
-
-    for s in sessions {
-        agent_session::DeleteQuery::new(s.id)
-            .execute(&mut conn)
-            .await
-            .map_err(|e| anyhow!("Failed to delete agent session: {:?}", e))?;
-    }
-
     for s in old_sessions {
-        old_agent_session::DeleteQuery::new(s.id)
-            .execute(&mut conn)
+        history::move_session(&mut conn, s, SessionKind::Old)
             .await
-            .map_err(|e| anyhow!("Failed to delete old agent session: {:?}", e))?;
+            .map_err(|e| anyhow!("Failed to move old agent sessions: {:?}", e))?;
     }
 
     Ok(())
