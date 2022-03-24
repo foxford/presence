@@ -32,6 +32,7 @@ pub struct AgentSession {
 }
 
 pub struct InsertQuery {
+    id: Option<Uuid>,
     agent_id: AgentId,
     classroom_id: ClassroomId,
     replica_id: String,
@@ -62,6 +63,7 @@ impl InsertResult {
 
 impl InsertQuery {
     pub fn new(
+        id: Option<Uuid>,
         agent_id: AgentId,
         classroom_id: ClassroomId,
         replica_id: String,
@@ -69,6 +71,7 @@ impl InsertQuery {
         kind: SessionKind,
     ) -> Self {
         Self {
+            id,
             agent_id,
             classroom_id,
             replica_id,
@@ -78,28 +81,49 @@ impl InsertQuery {
     }
 
     pub async fn execute(&self, conn: &mut PgConnection) -> InsertResult {
-        let result = query_as::<_, AgentSession>(&format!(
-            r#"
-            INSERT INTO {}
-                (agent_id, classroom_id, replica_id, started_at)
-            VALUES ($1, $2, $3, $4)
-            RETURNING
-                id,
-                agent_id,
-                classroom_id,
-                replica_id,
-                started_at
-            "#,
-            self.kind
-        ))
-        .bind(self.agent_id.clone())
-        .bind(self.classroom_id)
-        .bind(self.replica_id.clone())
-        .bind(self.started_at)
-        .fetch_one(conn)
-        .await;
+        let query = match self.kind {
+            SessionKind::Active => query_as::<_, AgentSession>(
+                r#"
+                INSERT INTO agent_session
+                    (agent_id, classroom_id, replica_id, started_at)
+                VALUES ($1, $2, $3, $4)
+                RETURNING
+                    id,
+                    agent_id,
+                    classroom_id,
+                    replica_id,
+                    started_at
+                "#,
+            )
+            .bind(self.agent_id.clone())
+            .bind(self.classroom_id)
+            .bind(self.replica_id.clone())
+            .bind(self.started_at),
+            SessionKind::Old => {
+                assert!(self.id.is_some());
 
-        match result {
+                query_as::<_, AgentSession>(
+                    r#"
+                INSERT INTO old_agent_session
+                    (id, agent_id, classroom_id, replica_id, started_at)
+                VALUES ($1, $2, $3, $4, $5)
+                RETURNING
+                    id,
+                    agent_id,
+                    classroom_id,
+                    replica_id,
+                    started_at
+                "#,
+                )
+                .bind(self.id.unwrap())
+                .bind(self.agent_id.clone())
+                .bind(self.classroom_id)
+                .bind(self.replica_id.clone())
+                .bind(self.started_at)
+            }
+        };
+
+        match query.fetch_one(conn).await {
             Ok(agent_session) => InsertResult::Ok(agent_session),
             Err(sqlx::Error::Database(err)) => {
                 if let Some(constraint) = err.constraint() {
@@ -275,8 +299,8 @@ impl GetAllByReplicaQuery {
             r#"
             SELECT
                 id,
-                agent_id AS "agent_id: AgentId",
-                classroom_id AS "classroom_id: ClassroomId",
+                agent_id,
+                classroom_id,
                 replica_id,
                 started_at
             FROM {}

@@ -123,6 +123,7 @@ mod tests {
             let replica = "replica_id".to_string();
 
             agent_session::InsertQuery::new(
+                None,
                 agent_1.agent_id().to_owned(),
                 classroom_id,
                 replica.clone(),
@@ -134,6 +135,7 @@ mod tests {
             .expect("Failed to insert first agent session");
 
             agent_session::InsertQuery::new(
+                None,
                 agent_2.agent_id().to_owned(),
                 classroom_id,
                 replica,

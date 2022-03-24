@@ -224,6 +224,7 @@ async fn create_agent_session<S: State>(
     };
 
     let insert_query = agent_session::InsertQuery::new(
+        None,
         agent_id.clone(),
         classroom_id,
         state.replica_id(),
@@ -278,6 +279,7 @@ async fn mark_prev_session_as_outdated<S: State>(
         .map_err(|e| anyhow!("Failed to get agent session: {:?}", e))?;
 
     if let InsertResult::Error(err) = agent_session::InsertQuery::new(
+        Some(session.id),
         session.agent_id,
         session.classroom_id,
         session.replica_id,

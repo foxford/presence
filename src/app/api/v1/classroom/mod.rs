@@ -136,6 +136,7 @@ mod tests {
             let mut conn = db_pool.get_conn().await;
 
             agent_session::InsertQuery::new(
+                None,
                 agent.agent_id().to_owned(),
                 classroom_id,
                 "replica".to_string(),
