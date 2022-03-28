@@ -86,7 +86,7 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
         .cmd_sender()
         .send(Command::Register((agent_session.id, close_tx)))
     {
-        error!(error = %e, "Failed to register session_id: {:?}", agent_session.id);
+        error!(error = %e, "Failed to register session_id: {}", agent_session.id);
         return;
     }
 
@@ -166,7 +166,7 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
         .cmd_sender()
         .send(Command::Terminate(agent_session.id))
     {
-        error!(error = %e, "Failed to terminate session_id: {:?}", agent_session.id);
+        error!(error = %e, "Failed to terminate session_id: {}", agent_session.id);
     }
 
     if let Err(err) = move_session_to_history(state, agent_session, SessionKind::Active).await {
@@ -240,7 +240,7 @@ async fn create_agent_session<S: State>(
         }
         InsertResult::UniqIdsConstraintError => {
             if let Err(err) =
-                mark_prev_session_as_outdated(state.clone(), classroom_id, agent_id.clone()).await
+                move_active_session_to_old(state.clone(), classroom_id, agent_id.clone()).await
             {
                 error!(error = %err, "Failed to mark session as outdated");
                 return Err(ConnectError::DbQueryFailed);
@@ -258,7 +258,7 @@ async fn create_agent_session<S: State>(
     }
 }
 
-async fn mark_prev_session_as_outdated<S: State>(
+async fn move_active_session_to_old<S: State>(
     state: S,
     classroom_id: ClassroomId,
     agent_id: AgentId,

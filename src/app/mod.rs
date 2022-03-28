@@ -113,11 +113,11 @@ async fn manage_agent_sessions<S: State>(
             Some(cmd) = cmd_rx.recv() => {
                 match cmd {
                     Command::Register((session_id, sender)) => {
-                        info!("register {:?}", session_id);
+                        info!("register {}", session_id);
                         sessions.insert(session_id, sender);
                     }
                     Command::Terminate(session_id) => {
-                        info!("terminate {:?}", session_id);
+                        info!("terminate {}", session_id);
                         sessions.remove(&session_id);
                     }
                 }
