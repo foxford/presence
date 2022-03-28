@@ -6,6 +6,7 @@ svc_audience = "dev.svc.example.org"
 ping_interval = "30s"
 pong_expiration_interval = "5s"
 authentication_timeout = "5s"
+check_old_connection_interval = "5s"
 
 [authn."dev.svc.example.org"]
 audience = ["dev.svc.example.org"]

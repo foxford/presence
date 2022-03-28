@@ -1,8 +1,12 @@
-use crate::app::api::AppResult;
-use crate::app::error::{ErrorExt, ErrorKind};
-use crate::authz::AuthzObject;
-use crate::db::agent_session::AgentCounter;
-use crate::state::State;
+use crate::{
+    app::{
+        api::AppResult,
+        error::{ErrorExt, ErrorKind},
+    },
+    authz::AuthzObject,
+    db::agent_session::AgentCounter,
+    state::State,
+};
 use anyhow::Context;
 use axum::{body, extract::Extension, Json};
 use http::Response;
@@ -69,11 +73,14 @@ async fn do_count_agents<S: State>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::classroom::ClassroomId;
-    use crate::test_helpers::prelude::*;
-    use axum::body::HttpBody;
-    use axum::response::IntoResponse;
+    use crate::{
+        classroom::ClassroomId,
+        db::agent_session::{self, SessionKind},
+        test_helpers::prelude::*,
+    };
+    use axum::{body::HttpBody, response::IntoResponse};
     use serde_json::Value;
+    use sqlx::types::time::OffsetDateTime;
     use std::collections::HashMap;
 
     #[tokio::test]
@@ -115,28 +122,35 @@ mod tests {
             let mut conn = db_pool.get_conn().await;
             let replica = "replica_id".to_string();
 
-            factory::agent_session::AgentSession::new(
+            agent_session::InsertQuery::new(
+                None,
                 agent_1.agent_id().to_owned(),
                 classroom_id,
                 replica.clone(),
+                OffsetDateTime::now_utc(),
+                SessionKind::Active,
             )
-            .insert(&mut conn)
+            .execute(&mut conn)
             .await
             .expect("Failed to insert first agent session");
 
-            factory::agent_session::AgentSession::new(
+            agent_session::InsertQuery::new(
+                None,
                 agent_2.agent_id().to_owned(),
                 classroom_id,
-                replica.clone(),
+                replica,
+                OffsetDateTime::now_utc(),
+                SessionKind::Active,
             )
-            .insert(&mut conn)
+            .execute(&mut conn)
             .await
-            .expect("Failed to insert second agent session")
+            .expect("Failed to insert second agent session");
         };
 
         let agent = TestAgent::new("web", "user4", USR_AUDIENCE);
 
         let mut authz = TestAuthz::new();
+        authz.set_audience(SVC_AUDIENCE);
         authz.allow(agent.account_id(), vec!["classrooms"], "read");
 
         let state = TestState::new(db_pool, authz);

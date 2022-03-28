@@ -1,9 +1,161 @@
 use crate::classroom::ClassroomId;
 use serde_derive::Serialize;
-use sqlx::PgConnection;
-use std::collections::HashMap;
+use sqlx::{
+    postgres::PgQueryResult, query, query_as, types::time::OffsetDateTime, Error, PgConnection,
+};
+use std::{collections::HashMap, fmt::Formatter};
 use svc_agent::AgentId;
 use uuid::Uuid;
+
+pub enum SessionKind {
+    Active,
+    Old,
+}
+
+impl std::fmt::Display for SessionKind {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let name = match self {
+            SessionKind::Active => "agent_session",
+            SessionKind::Old => "old_agent_session",
+        };
+        write!(f, "{}", name)
+    }
+}
+
+#[derive(Clone, Debug, sqlx::FromRow)]
+pub struct AgentSession {
+    pub id: Uuid,
+    pub agent_id: AgentId,
+    pub classroom_id: ClassroomId,
+    pub replica_id: String,
+    pub started_at: OffsetDateTime,
+}
+
+pub struct InsertQuery {
+    id: Option<Uuid>,
+    agent_id: AgentId,
+    classroom_id: ClassroomId,
+    replica_id: String,
+    started_at: OffsetDateTime,
+    kind: SessionKind,
+}
+
+pub enum InsertResult {
+    Ok(AgentSession),
+    Error(Error),
+    UniqIdsConstraintError,
+}
+
+#[cfg(test)]
+impl InsertResult {
+    pub fn expect(&self, msg: &str) -> AgentSession {
+        match self {
+            InsertResult::Ok(s) => s.to_owned(),
+            InsertResult::Error(err) => {
+                panic!("{}, error: {:?}", msg, err)
+            }
+            _ => {
+                panic!("{}", msg)
+            }
+        }
+    }
+}
+
+impl InsertQuery {
+    pub fn new(
+        id: Option<Uuid>,
+        agent_id: AgentId,
+        classroom_id: ClassroomId,
+        replica_id: String,
+        started_at: OffsetDateTime,
+        kind: SessionKind,
+    ) -> Self {
+        Self {
+            id,
+            agent_id,
+            classroom_id,
+            replica_id,
+            started_at,
+            kind,
+        }
+    }
+
+    pub async fn execute(&self, conn: &mut PgConnection) -> InsertResult {
+        let query = match self.kind {
+            SessionKind::Active => query_as::<_, AgentSession>(
+                r#"
+                INSERT INTO agent_session
+                    (agent_id, classroom_id, replica_id, started_at)
+                VALUES ($1, $2, $3, $4)
+                RETURNING
+                    id,
+                    agent_id,
+                    classroom_id,
+                    replica_id,
+                    started_at
+                "#,
+            )
+            .bind(self.agent_id.clone())
+            .bind(self.classroom_id)
+            .bind(self.replica_id.clone())
+            .bind(self.started_at),
+            SessionKind::Old => {
+                assert!(self.id.is_some());
+
+                query_as::<_, AgentSession>(
+                    r#"
+                INSERT INTO old_agent_session
+                    (id, agent_id, classroom_id, replica_id, started_at)
+                VALUES ($1, $2, $3, $4, $5)
+                RETURNING
+                    id,
+                    agent_id,
+                    classroom_id,
+                    replica_id,
+                    started_at
+                "#,
+                )
+                .bind(self.id.unwrap())
+                .bind(self.agent_id.clone())
+                .bind(self.classroom_id)
+                .bind(self.replica_id.clone())
+                .bind(self.started_at)
+            }
+        };
+
+        match query.fetch_one(conn).await {
+            Ok(agent_session) => InsertResult::Ok(agent_session),
+            Err(sqlx::Error::Database(err)) => {
+                if let Some(constraint) = err.constraint() {
+                    if constraint == "uniq_classroom_id_agent_id" {
+                        return InsertResult::UniqIdsConstraintError;
+                    }
+                }
+
+                InsertResult::Error(Error::Database(err))
+            }
+            Err(err) => InsertResult::Error(err),
+        }
+    }
+}
+
+pub struct DeleteQuery {
+    id: Uuid,
+    kind: SessionKind,
+}
+
+impl DeleteQuery {
+    pub fn new(id: Uuid, kind: SessionKind) -> Self {
+        Self { id, kind }
+    }
+
+    pub async fn execute(&self, conn: &mut PgConnection) -> sqlx::Result<PgQueryResult> {
+        query(&format!(r#"DELETE FROM {} WHERE id = $1"#, self.kind))
+            .bind(self.id)
+            .execute(conn)
+            .await
+    }
+}
 
 #[derive(Serialize)]
 #[serde(transparent)]
@@ -13,11 +165,17 @@ pub struct Agent {
 
 pub struct AgentList {
     classroom_id: ClassroomId,
+    offset: usize,
+    limit: usize,
 }
 
 impl AgentList {
-    pub fn new(classroom_id: ClassroomId) -> Self {
-        Self { classroom_id }
+    pub fn new(classroom_id: ClassroomId, offset: usize, limit: usize) -> Self {
+        Self {
+            classroom_id,
+            offset,
+            limit,
+        }
     }
 
     pub async fn execute(&self, conn: &mut PgConnection) -> sqlx::Result<Vec<Agent>> {
@@ -29,8 +187,12 @@ impl AgentList {
             FROM agent_session
             WHERE
                 classroom_id = $1::uuid
+            LIMIT $2
+            OFFSET $3
             "#,
-            self.classroom_id as ClassroomId
+            self.classroom_id as ClassroomId,
+            self.limit as u32,
+            self.offset as u32
         )
         .fetch_all(conn)
         .await
@@ -79,5 +241,75 @@ impl AgentCounter {
             .collect::<HashMap<_, _>>();
 
         Ok(result)
+    }
+}
+
+pub struct GetQuery {
+    agent_id: AgentId,
+    classroom_id: ClassroomId,
+    replica_id: String,
+}
+
+impl GetQuery {
+    pub fn new(agent_id: AgentId, classroom_id: ClassroomId, replica_id: String) -> Self {
+        Self {
+            agent_id,
+            classroom_id,
+            replica_id,
+        }
+    }
+
+    pub async fn execute(&self, conn: &mut PgConnection) -> sqlx::Result<AgentSession> {
+        sqlx::query_as!(
+            AgentSession,
+            r#"
+            SELECT
+                id,
+                agent_id AS "agent_id: AgentId",
+                classroom_id AS "classroom_id: ClassroomId",
+                replica_id,
+                started_at
+            FROM agent_session
+            WHERE
+                agent_id = $1
+                AND classroom_id = $2
+                AND replica_id = $3
+            "#,
+            self.agent_id.clone() as AgentId,
+            self.classroom_id as ClassroomId,
+            self.replica_id,
+        )
+        .fetch_one(conn)
+        .await
+    }
+}
+
+pub struct GetAllByReplicaQuery {
+    replica_id: String,
+    kind: SessionKind,
+}
+
+impl GetAllByReplicaQuery {
+    pub fn new(replica_id: String, kind: SessionKind) -> Self {
+        Self { replica_id, kind }
+    }
+
+    pub async fn execute(&self, conn: &mut PgConnection) -> sqlx::Result<Vec<AgentSession>> {
+        query_as::<_, AgentSession>(&format!(
+            r#"
+            SELECT
+                id,
+                agent_id,
+                classroom_id,
+                replica_id,
+                started_at
+            FROM {}
+            WHERE replica_id = $1
+            "#,
+            self.kind
+        ))
+        .bind(self.replica_id.clone())
+        .fetch_all(conn)
+        .await
     }
 }

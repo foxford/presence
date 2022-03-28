@@ -1,6 +1,5 @@
 use std::env::var;
-use svc_authz::cache::RedisCache;
-use svc_authz::IntentObject;
+use svc_authz::{cache::RedisCache, IntentObject};
 
 pub type AuthzCache = Box<dyn svc_authz::cache::AuthzCache>;
 

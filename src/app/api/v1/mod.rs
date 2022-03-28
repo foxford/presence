@@ -1,5 +1,4 @@
-use axum::body::Body;
-use axum::response::Response;
+use axum::{body::Body, response::Response};
 
 pub mod classroom;
 pub mod counter;

@@ -2,7 +2,7 @@ use serde_derive::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
 use uuid::Uuid;
 
-#[derive(Deserialize, Serialize, sqlx::Type, Copy, Clone, Hash, Eq, PartialEq)]
+#[derive(Deserialize, Serialize, sqlx::Type, Copy, Clone, Hash, Eq, PartialEq, Debug)]
 #[sqlx(transparent)]
 pub struct ClassroomId(pub Uuid);
 
