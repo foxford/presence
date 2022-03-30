@@ -1,30 +1,18 @@
-use crate::{
-    authz::AuthzCache,
-    db,
-    state::{AppState, State},
-};
+use crate::{app::session_manager::Command, authz::AuthzCache, state::AppState};
 use anyhow::{Context, Result};
 use futures_util::StreamExt;
 use signal_hook::consts::TERM_SIGNALS;
 use sqlx::PgPool;
-use std::{collections::HashMap, env::var};
-use tokio::{
-    sync::{mpsc, mpsc::UnboundedReceiver, oneshot, watch},
-    time::{interval, MissedTickBehavior},
-};
+use std::env::var;
+use tokio::sync::{mpsc, watch};
 use tracing::{error, info};
-use uuid::Uuid;
 
 mod api;
 mod error;
 mod history_manager;
 mod router;
+pub mod session_manager;
 mod ws;
-
-pub enum Command {
-    Register((Uuid, oneshot::Sender<()>)),
-    Terminate(Uuid),
-}
 
 pub async fn run(db: PgPool, authz_cache: Option<AuthzCache>) -> Result<()> {
     let replica_id = var("APP_AGENT_LABEL").expect("APP_AGENT_LABEL must be specified");
@@ -62,8 +50,7 @@ pub async fn run(db: PgPool, authz_cache: Option<AuthzCache>) -> Result<()> {
             }),
     );
 
-    let session_manager =
-        tokio::task::spawn(manage_agent_sessions(state.clone(), cmd_rx, shutdown_rx));
+    let session_manager = session_manager::run(state.clone(), cmd_rx, shutdown_rx);
 
     // Waiting for signals for graceful shutdown
     let mut signals_stream = signal_hook_tokio::Signals::new(TERM_SIGNALS)?.fuse();
@@ -87,63 +74,4 @@ pub async fn run(db: PgPool, authz_cache: Option<AuthzCache>) -> Result<()> {
     }
 
     Ok(())
-}
-
-// TODO: Move to another module ~ session_manager?
-// Manages agent session by handling incoming commands.
-// Also, closes old agent sessions.
-async fn manage_agent_sessions<S: State>(
-    state: S,
-    mut cmd_rx: UnboundedReceiver<Command>,
-    mut shutdown_rx: watch::Receiver<()>,
-) {
-    let mut check_interval = interval(state.config().websocket.check_old_connection_interval);
-    check_interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
-
-    // (agent_id, classroom_id)
-    let mut sessions = HashMap::<Uuid, oneshot::Sender<()>>::new();
-
-    loop {
-        tokio::select! {
-            Some(cmd) = cmd_rx.recv() => {
-                match cmd {
-                    Command::Register((session_id, sender)) => {
-                        sessions.insert(session_id, sender);
-                    }
-                    Command::Terminate(session_id) => {
-                        sessions.remove(&session_id);
-                    }
-                }
-            }
-            _ = check_interval.tick() => {
-                let mut conn = match state.get_conn().await {
-                    Ok(conn) => conn,
-                    Err(e) => {
-                        error!(error = %e, "Failed to get db connection");
-                        continue;
-                    }
-                };
-
-                match db::agent_session::FindQuery::by_replica(state.replica_id().as_str()).outdated(true)
-                    .execute(&mut conn)
-                    .await
-                {
-                    Ok(session_ids) => {
-                        session_ids.iter().for_each(|s| {
-                            // After removing `oneshot::Sender<()>` from HashMap,
-                            // oneshot::Receiver<()> will get `RecvError` and close old connection
-                            sessions.remove(&s.id);
-                        })
-                    }
-                    Err(e) => {
-                        error!(error = %e, "Failed to get old agent sessions");
-                    }
-                }
-            }
-            // Graceful shutdown
-            _ = shutdown_rx.changed() => {
-                break;
-            }
-        }
-    }
 }

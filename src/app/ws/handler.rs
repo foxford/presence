@@ -52,7 +52,6 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
     // Authentication
     let agent_session = match authn_timeout {
         Ok(Some(result)) => match result {
-            // TODO: move to another module ~ session_manager?
             Ok(msg) => match handle_authn_message(msg, authn, state.clone()).await {
                 Ok((m, agent_session)) => {
                     info!("Successful authentication: {}", &agent_session.id);
@@ -150,11 +149,15 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
                 }
             }
             // Close old connections
-            Err(_) = &mut close_rx => {
+            result = &mut close_rx => {
                 info!("Old connection is closed");
                 let _ = sender.close().await;
 
-                // TODO: Skip...
+                // Skip moving old session to history on the same replica
+                if result.is_err() {
+                    return;
+                }
+
                 if let Err(err) = history_manager::move_single_session(state, &agent_session).await {
                     error!(error = %err, "Failed to move session to history");
                 }
@@ -168,7 +171,7 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
         .cmd_sender()
         .send(Command::Terminate(agent_session.id))
     {
-        error!(error = %e, "Failed to terminate session_id: {}", agent_session.id);
+        error!(error = %e, "Failed to terminate session: {}", agent_session.id);
     }
 
     if let Err(err) = history_manager::move_single_session(state, &agent_session).await {
@@ -225,9 +228,28 @@ async fn create_agent_session<S: State>(
         }
     };
 
-    // TODO: Close connection now in the same replica without db access
-    // delete from hashmap
-    // return
+    // Check existence of active agent session on the same replica
+    match agent_session::GetQuery::new(&agent_id, &classroom_id, &state.replica_id())
+        .execute(&mut conn)
+        .await
+    {
+        Ok(Some(session)) => {
+            if let Err(e) = state.cmd_sender().send(Command::Terminate(session.id)) {
+                error!(error = %e, "Failed to terminate session: {}", session.id);
+            }
+
+            return Ok(session);
+
+            // delete from hashmap
+            // close old connection
+            // return agent session
+        }
+        Err(err) => {
+            error!(error = %err, "Failed to get previous agent session");
+            return Err(ConnectError::DbQueryFailed);
+        }
+        _ => {}
+    }
 
     let insert_query = agent_session::InsertQuery::new(
         &agent_id,

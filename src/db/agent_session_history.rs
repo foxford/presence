@@ -138,12 +138,12 @@ impl<'a> UpdateAllLifetimesQuery<'a> {
     }
 }
 
-pub struct InsertFromAgentSessionQuery<'a> {
+pub struct InsertAllFromAgentSessionQuery<'a> {
     replica_id: &'a str,
     except: &'a [Uuid],
 }
 
-impl<'a> InsertFromAgentSessionQuery<'a> {
+impl<'a> InsertAllFromAgentSessionQuery<'a> {
     pub fn by_replica(replica_id: &'a str) -> Self {
         Self {
             replica_id,

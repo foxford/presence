@@ -5,7 +5,7 @@ use anyhow::{anyhow, Result};
 use sqlx::Connection;
 use uuid::Uuid;
 
-/// Moves all rows from the `agent_session` table in `agent_session_history`.
+/// Moves all session from the `agent_session` table in `agent_session_history`.
 pub async fn move_all_sessions<S: State>(state: S, replica_id: &str) -> Result<()> {
     let mut conn = state
         .get_conn()
@@ -31,7 +31,7 @@ pub async fn move_all_sessions<S: State>(state: S, replica_id: &str) -> Result<(
 
     // Move new sessions to history
     let inserted_session_ids =
-        agent_session_history::InsertFromAgentSessionQuery::by_replica(replica_id)
+        agent_session_history::InsertAllFromAgentSessionQuery::by_replica(replica_id)
             .except(&session_ids)
             .execute(&mut tx)
             .await
@@ -48,7 +48,7 @@ pub async fn move_all_sessions<S: State>(state: S, replica_id: &str) -> Result<(
     agent_session::DeleteQuery::by_replica(replica_id, &session_ids)
         .execute(&mut tx)
         .await
-        .map_err(|e| anyhow!("Failed to delete agent_session: {:?}", e))?;
+        .map_err(|e| anyhow!("Failed to delete agent sessions: {:?}", e))?;
 
     tx.commit()
         .await
@@ -68,7 +68,7 @@ pub async fn move_single_session<S: State>(state: S, session: &AgentSession) -> 
         .await
         .map_err(|e| anyhow!("Failed to acquire transaction: {:?}", e))?;
 
-    let session_history = agent_session_history::CheckLifetimeOverlapQuery::new(&session)
+    let session_history = agent_session_history::CheckLifetimeOverlapQuery::new(session)
         .execute(&mut tx)
         .await
         .map_err(|e| {
@@ -86,7 +86,7 @@ pub async fn move_single_session<S: State>(state: S, session: &AgentSession) -> 
                 .map_err(|e| anyhow!("Failed to update agent_session_history lifetime: {:?}", e))?;
         }
         None => {
-            agent_session_history::InsertQuery::new(&session)
+            agent_session_history::InsertQuery::new(session)
                 .execute(&mut tx)
                 .await
                 .map_err(|e| anyhow!("Failed to create agent_session_history: {:?}", e))?;

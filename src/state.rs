@@ -1,4 +1,4 @@
-use crate::{app::Command, config::Config};
+use crate::{app::session_manager::Command, config::Config};
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use sqlx::{pool::PoolConnection, PgPool, Postgres};

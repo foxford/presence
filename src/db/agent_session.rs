@@ -282,3 +282,44 @@ impl<'a> UpdateOutdatedQuery<'a> {
         .await
     }
 }
+
+pub struct GetQuery<'a> {
+    agent_id: &'a AgentId,
+    classroom_id: &'a ClassroomId,
+    replica_id: &'a str,
+}
+
+impl<'a> GetQuery<'a> {
+    pub fn new(agent_id: &'a AgentId, classroom_id: &'a ClassroomId, replica_id: &'a str) -> Self {
+        Self {
+            agent_id,
+            classroom_id,
+            replica_id,
+        }
+    }
+
+    pub async fn execute(&self, conn: &mut PgConnection) -> sqlx::Result<Option<AgentSession>> {
+        sqlx::query_as!(
+            AgentSession,
+            r#"
+            SELECT
+                id,
+                agent_id AS "agent_id: AgentId",
+                classroom_id AS "classroom_id: ClassroomId",
+                replica_id,
+                started_at
+            FROM agent_session
+            WHERE
+                agent_id = $1
+                AND classroom_id = $2
+                AND replica_id = $3
+            LIMIT 1
+            "#,
+            self.agent_id as &AgentId,
+            self.classroom_id as &ClassroomId,
+            self.replica_id
+        )
+        .fetch_optional(conn)
+        .await
+    }
+}
