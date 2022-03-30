@@ -1,26 +1,9 @@
 use crate::classroom::ClassroomId;
 use serde_derive::Serialize;
-use sqlx::{
-    postgres::PgQueryResult, query, query_as, types::time::OffsetDateTime, Error, PgConnection,
-};
-use std::{collections::HashMap, fmt::Formatter};
+use sqlx::{postgres::PgQueryResult, types::time::OffsetDateTime, Error, PgConnection};
+use std::collections::HashMap;
 use svc_agent::AgentId;
 use uuid::Uuid;
-
-pub enum SessionKind {
-    Active,
-    Old,
-}
-
-impl std::fmt::Display for SessionKind {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let name = match self {
-            SessionKind::Active => "agent_session",
-            SessionKind::Old => "old_agent_session",
-        };
-        write!(f, "{}", name)
-    }
-}
 
 #[derive(Clone, Debug, sqlx::FromRow)]
 pub struct AgentSession {
@@ -31,13 +14,11 @@ pub struct AgentSession {
     pub started_at: OffsetDateTime,
 }
 
-pub struct InsertQuery {
-    id: Option<Uuid>,
-    agent_id: AgentId,
+pub struct InsertQuery<'a> {
+    agent_id: &'a AgentId,
     classroom_id: ClassroomId,
     replica_id: String,
     started_at: OffsetDateTime,
-    kind: SessionKind,
 }
 
 pub enum InsertResult {
@@ -61,73 +42,46 @@ impl InsertResult {
     }
 }
 
-impl InsertQuery {
+impl<'a> InsertQuery<'a> {
     pub fn new(
-        id: Option<Uuid>,
-        agent_id: AgentId,
+        agent_id: &'a AgentId,
         classroom_id: ClassroomId,
         replica_id: String,
         started_at: OffsetDateTime,
-        kind: SessionKind,
     ) -> Self {
         Self {
-            id,
             agent_id,
             classroom_id,
             replica_id,
             started_at,
-            kind,
         }
     }
 
     pub async fn execute(&self, conn: &mut PgConnection) -> InsertResult {
-        let query = match self.kind {
-            SessionKind::Active => query_as::<_, AgentSession>(
-                r#"
-                INSERT INTO agent_session
-                    (agent_id, classroom_id, replica_id, started_at)
-                VALUES ($1, $2, $3, $4)
-                RETURNING
-                    id,
-                    agent_id,
-                    classroom_id,
-                    replica_id,
-                    started_at
-                "#,
-            )
-            .bind(self.agent_id.clone())
-            .bind(self.classroom_id)
-            .bind(self.replica_id.clone())
-            .bind(self.started_at),
-            SessionKind::Old => {
-                assert!(self.id.is_some());
-
-                query_as::<_, AgentSession>(
-                    r#"
-                INSERT INTO old_agent_session
-                    (id, agent_id, classroom_id, replica_id, started_at)
-                VALUES ($1, $2, $3, $4, $5)
-                RETURNING
-                    id,
-                    agent_id,
-                    classroom_id,
-                    replica_id,
-                    started_at
-                "#,
-                )
-                .bind(self.id.unwrap())
-                .bind(self.agent_id.clone())
-                .bind(self.classroom_id)
-                .bind(self.replica_id.clone())
-                .bind(self.started_at)
-            }
-        };
+        let query = sqlx::query_as!(
+            AgentSession,
+            r#"
+            INSERT INTO agent_session
+                (agent_id, classroom_id, replica_id, started_at)
+            VALUES ($1, $2, $3, $4)
+            RETURNING
+                id,
+                agent_id AS "agent_id: AgentId",
+                classroom_id AS "classroom_id: ClassroomId",
+                replica_id,
+                started_at
+            "#,
+            self.agent_id as &AgentId,
+            self.classroom_id as ClassroomId,
+            self.replica_id,
+            self.started_at
+        );
 
         match query.fetch_one(conn).await {
             Ok(agent_session) => InsertResult::Ok(agent_session),
             Err(sqlx::Error::Database(err)) => {
                 if let Some(constraint) = err.constraint() {
-                    if constraint == "uniq_classroom_id_agent_id" {
+                    if constraint == "uniq_classroom_id_agent_id_outdated" {
                         return InsertResult::UniqIdsConstraintError;
                     }
                 }
@@ -139,21 +93,28 @@ impl InsertQuery {
     }
 }
 
-pub struct DeleteQuery {
-    id: Uuid,
-    kind: SessionKind,
+pub struct DeleteQuery<'a> {
+    ids: &'a [Uuid],
+    replica_id: &'a str,
 }
 
-impl DeleteQuery {
-    pub fn new(id: Uuid, kind: SessionKind) -> Self {
-        Self { id, kind }
+impl<'a> DeleteQuery<'a> {
+    pub fn by_replica(replica_id: &'a str, ids: &'a [Uuid]) -> Self {
+        Self { ids, replica_id }
     }
 
     pub async fn execute(&self, conn: &mut PgConnection) -> sqlx::Result<PgQueryResult> {
-        query(&format!(r#"DELETE FROM {} WHERE id = $1"#, self.kind))
-            .bind(self.id)
-            .execute(conn)
-            .await
+        sqlx::query!(
+            r#"
+            DELETE FROM agent_session
+            WHERE id = ANY ($1)
+            AND replica_id = $2
+            "#,
+            self.ids,
+            self.replica_id
+        )
+        .execute(conn)
+        .await
     }
 }
 
@@ -244,72 +205,80 @@ impl AgentCounter {
     }
 }
 
-pub struct GetQuery {
-    agent_id: AgentId,
-    classroom_id: ClassroomId,
-    replica_id: String,
+pub struct FindQuery<'a> {
+    replica_id: &'a str,
+    outdated: bool,
 }
 
-impl GetQuery {
-    pub fn new(agent_id: AgentId, classroom_id: ClassroomId, replica_id: String) -> Self {
+pub struct SessionId {
+    pub id: Uuid,
+}
+
+impl<'a> FindQuery<'a> {
+    pub fn by_replica(replica_id: &'a str) -> Self {
         Self {
-            agent_id,
-            classroom_id,
             replica_id,
+            outdated: false,
         }
     }
 
-    pub async fn execute(&self, conn: &mut PgConnection) -> sqlx::Result<AgentSession> {
+    pub fn outdated(mut self, value: bool) -> Self {
+        self.outdated = value;
+        self
+    }
+
+    pub async fn execute(&self, conn: &mut PgConnection) -> sqlx::Result<Vec<SessionId>> {
         sqlx::query_as!(
-            AgentSession,
+            SessionId,
             r#"
-            SELECT
-                id,
-                agent_id AS "agent_id: AgentId",
-                classroom_id AS "classroom_id: ClassroomId",
-                replica_id,
-                started_at
+            SELECT id
             FROM agent_session
             WHERE
-                agent_id = $1
-                AND classroom_id = $2
-                AND replica_id = $3
+                replica_id = $1
+                AND outdated = $2
             "#,
-            self.agent_id.clone() as AgentId,
-            self.classroom_id as ClassroomId,
             self.replica_id,
+            self.outdated
         )
-        .fetch_one(conn)
+        .fetch_all(conn)
         .await
     }
 }
 
-pub struct GetAllByReplicaQuery {
-    replica_id: String,
-    kind: SessionKind,
+pub struct UpdateOutdatedQuery<'a> {
+    agent_id: &'a AgentId,
+    classroom_id: ClassroomId,
+    outdated: bool,
 }
 
-impl GetAllByReplicaQuery {
-    pub fn new(replica_id: String, kind: SessionKind) -> Self {
-        Self { replica_id, kind }
+impl<'a> UpdateOutdatedQuery<'a> {
+    pub fn by_agent_and_classroom(agent_id: &'a AgentId, classroom_id: ClassroomId) -> Self {
+        Self {
+            agent_id,
+            classroom_id,
+            outdated: false,
+        }
     }
 
-    pub async fn execute(&self, conn: &mut PgConnection) -> sqlx::Result<Vec<AgentSession>> {
-        query_as::<_, AgentSession>(&format!(
+    pub fn outdated(mut self, value: bool) -> Self {
+        self.outdated = value;
+        self
+    }
+
+    pub async fn execute(&self, conn: &mut PgConnection) -> sqlx::Result<PgQueryResult> {
+        sqlx::query!(
             r#"
-            SELECT
-                id,
-                agent_id,
-                classroom_id,
-                replica_id,
-                started_at
-            FROM {}
-            WHERE replica_id = $1
+            UPDATE agent_session
+            SET outdated = $1
+            WHERE
+                agent_id = $2
+                AND classroom_id = $3
             "#,
-            self.kind
-        ))
-        .bind(self.replica_id.clone())
-        .fetch_all(conn)
+            self.outdated,
+            self.agent_id as &AgentId,
+            self.classroom_id as ClassroomId
+        )
+        .execute(conn)
         .await
     }
 }

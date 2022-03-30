@@ -1,54 +1,99 @@
-use crate::db::{
-    agent_session::SessionKind,
-    agent_session::{self, AgentSession},
-    agent_session_history,
-};
+use crate::db::agent_session::AgentSession;
+use crate::db::{agent_session, agent_session_history};
+use crate::state::State;
 use anyhow::{anyhow, Result};
-use sqlx::{pool::PoolConnection, types::time::OffsetDateTime, Connection, Postgres};
-use std::ops::Bound;
+use sqlx::Connection;
+use uuid::Uuid;
 
-pub async fn move_session(
-    conn: &mut PoolConnection<Postgres>,
-    session: AgentSession,
-    kind: SessionKind,
-) -> Result<()> {
+/// Moves all rows from the `agent_session` table in `agent_session_history`.
+pub async fn move_all_sessions<S: State>(state: S, replica_id: &str) -> Result<()> {
+    let mut conn = state
+        .get_conn()
+        .await
+        .map_err(|e| anyhow!("Failed to get db connection: {:?}", e))?;
+
     let mut tx = conn
         .begin()
         .await
         .map_err(|e| anyhow!("Failed to acquire transaction: {:?}", e))?;
 
-    let now = OffsetDateTime::now_utc();
-    let session_history =
-        agent_session_history::CheckLifetimeOverlapQuery::new(session.clone(), now)
+    // Update lifetime in existing histories
+    let updated_session_ids =
+        agent_session_history::UpdateAllLifetimesQuery::by_replica(replica_id)
             .execute(&mut tx)
             .await
-            .map_err(|e| {
-                anyhow!(
-                    "Failed to check agent_session_history lifetime overlap: {:?}",
-                    e
-                )
-            })?;
+            .map_err(|e| anyhow!("Failed to update lifetime in existing histories: {:?}", e))?;
+
+    let mut session_ids = updated_session_ids
+        .iter()
+        .map(|s| s.id)
+        .collect::<Vec<Uuid>>();
+
+    // Move new sessions to history
+    let inserted_session_ids =
+        agent_session_history::InsertFromAgentSessionQuery::by_replica(replica_id)
+            .except(&session_ids)
+            .execute(&mut tx)
+            .await
+            .map_err(|e| anyhow!("Failed to create histories from agent_session: {:?}", e))?;
+
+    session_ids.extend(
+        inserted_session_ids
+            .iter()
+            .map(|s| s.id)
+            .collect::<Vec<Uuid>>(),
+    );
+
+    // Delete moved sessions
+    agent_session::DeleteQuery::by_replica(replica_id, &session_ids)
+        .execute(&mut tx)
+        .await
+        .map_err(|e| anyhow!("Failed to delete agent_session: {:?}", e))?;
+
+    tx.commit()
+        .await
+        .map_err(|e| anyhow!("Failed to commit transaction: {:?}", e))?;
+
+    Ok(())
+}
+
+pub async fn move_single_session<S: State>(state: S, session: &AgentSession) -> Result<()> {
+    let mut conn = state
+        .get_conn()
+        .await
+        .map_err(|e| anyhow!("Failed to get db connection: {:?}", e))?;
+
+    let mut tx = conn
+        .begin()
+        .await
+        .map_err(|e| anyhow!("Failed to acquire transaction: {:?}", e))?;
+
+    let session_history = agent_session_history::CheckLifetimeOverlapQuery::new(&session)
+        .execute(&mut tx)
+        .await
+        .map_err(|e| {
+            anyhow!(
+                "Failed to check agent_session_history lifetime overlap: {:?}",
+                e
+            )
+        })?;
 
     match session_history {
         Some(history) => {
-            agent_session_history::UpdateLifetimeQuery::new(
-                history.id,
-                history.lifetime.start,
-                Bound::Excluded(now),
-            )
-            .execute(&mut tx)
-            .await
-            .map_err(|e| anyhow!("Failed to update agent_session_history lifetime: {:?}", e))?;
+            agent_session_history::UpdateLifetimeQuery::new(history.id, history.lifetime.start)
+                .execute(&mut tx)
+                .await
+                .map_err(|e| anyhow!("Failed to update agent_session_history lifetime: {:?}", e))?;
         }
         None => {
-            agent_session_history::InsertQuery::new(session.clone(), now)
+            agent_session_history::InsertQuery::new(&session)
                 .execute(&mut tx)
                 .await
                 .map_err(|e| anyhow!("Failed to create agent_session_history: {:?}", e))?;
         }
     }
 
-    agent_session::DeleteQuery::new(session.id, kind)
+    agent_session::DeleteQuery::by_replica(&state.replica_id(), &[session.id])
         .execute(&mut tx)
         .await
         .map_err(|e| anyhow!("Failed to delete agent_session: {:?}", e))?;
@@ -78,12 +123,10 @@ mod tests {
             let mut conn = db_pool.get_conn().await;
 
             agent_session::InsertQuery::new(
-                None,
                 agent.agent_id().to_owned(),
                 classroom_id,
                 "replica".to_string(),
                 OffsetDateTime::now_utc(),
-                SessionKind::Active,
             )
             .execute(&mut conn)
             .await
@@ -120,12 +163,10 @@ mod tests {
             let mut conn = db_pool.get_conn().await;
 
             let session = agent_session::InsertQuery::new(
-                None,
                 agent.agent_id().to_owned(),
                 classroom_id,
                 "replica".to_string(),
                 OffsetDateTime::now_utc(),
-                SessionKind::Active,
             )
             .execute(&mut conn)
             .await
@@ -140,7 +181,7 @@ mod tests {
         };
 
         let mut conn = db_pool.get_conn().await;
-        move_session(&mut conn, session, SessionKind::Active)
+        move_session(&mut conn, session)
             .await
             .expect("Failed to move session to history");
 
