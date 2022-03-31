@@ -1,4 +1,3 @@
-use crate::db::agent_session::SessionId;
 use crate::{classroom::ClassroomId, db::agent_session::AgentSession};
 use sqlx::{
     postgres::{types::PgRange, PgQueryResult},
@@ -102,6 +101,10 @@ impl UpdateLifetimeQuery {
 
 pub struct UpdateAllLifetimesQuery<'a> {
     replica_id: &'a str,
+}
+
+pub struct SessionId {
+    pub id: Uuid,
 }
 
 impl<'a> UpdateAllLifetimesQuery<'a> {

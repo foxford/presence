@@ -1,4 +1,4 @@
-use crate::db::agent_session::AgentSession;
+// use crate::db::agent_session::AgentSession;
 use crate::db::{agent_session, agent_session_history};
 use crate::state::State;
 use anyhow::{anyhow, Result};
@@ -57,7 +57,7 @@ pub async fn move_all_sessions<S: State>(state: S, replica_id: &str) -> Result<(
     Ok(())
 }
 
-pub async fn move_single_session<S: State>(state: S, session: &AgentSession) -> Result<()> {
+pub async fn move_single_session<S: State>(state: S, session_id: &Uuid) -> Result<()> {
     let mut conn = state
         .get_conn()
         .await
@@ -68,7 +68,12 @@ pub async fn move_single_session<S: State>(state: S, session: &AgentSession) -> 
         .await
         .map_err(|e| anyhow!("Failed to acquire transaction: {:?}", e))?;
 
-    let session_history = agent_session_history::CheckLifetimeOverlapQuery::new(session)
+    let session = agent_session::GetQuery::new(session_id)
+        .execute(&mut tx)
+        .await
+        .map_err(|e| anyhow!("Failed to get session: {:?}", e))?;
+
+    let session_history = agent_session_history::CheckLifetimeOverlapQuery::new(&session)
         .execute(&mut tx)
         .await
         .map_err(|e| {
@@ -86,7 +91,7 @@ pub async fn move_single_session<S: State>(state: S, session: &AgentSession) -> 
                 .map_err(|e| anyhow!("Failed to update agent_session_history lifetime: {:?}", e))?;
         }
         None => {
-            agent_session_history::InsertQuery::new(session)
+            agent_session_history::InsertQuery::new(&session)
                 .execute(&mut tx)
                 .await
                 .map_err(|e| anyhow!("Failed to create agent_session_history: {:?}", e))?;

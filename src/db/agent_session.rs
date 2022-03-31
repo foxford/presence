@@ -210,8 +210,11 @@ pub struct FindQuery<'a> {
     outdated: bool,
 }
 
-pub struct SessionId {
-    pub id: Uuid,
+pub struct FindResult {
+    // pub id: Uuid,
+    pub id: (AgentId, ClassroomId),
+    // pub agent_id: AgentId,
+    // pub classroom_id: ClassroomId,
 }
 
 impl<'a> FindQuery<'a> {
@@ -227,11 +230,12 @@ impl<'a> FindQuery<'a> {
         self
     }
 
-    pub async fn execute(&self, conn: &mut PgConnection) -> sqlx::Result<Vec<SessionId>> {
+    pub async fn execute(&self, conn: &mut PgConnection) -> sqlx::Result<Vec<FindResult>> {
         sqlx::query_as!(
-            SessionId,
+            FindResult,
             r#"
-            SELECT id
+            SELECT
+                (agent_id, classroom_id) AS "id!: (AgentId, ClassroomId)"
             FROM agent_session
             WHERE
                 replica_id = $1
@@ -284,21 +288,15 @@ impl<'a> UpdateOutdatedQuery<'a> {
 }
 
 pub struct GetQuery<'a> {
-    agent_id: &'a AgentId,
-    classroom_id: &'a ClassroomId,
-    replica_id: &'a str,
+    id: &'a Uuid,
 }
 
 impl<'a> GetQuery<'a> {
-    pub fn new(agent_id: &'a AgentId, classroom_id: &'a ClassroomId, replica_id: &'a str) -> Self {
-        Self {
-            agent_id,
-            classroom_id,
-            replica_id,
-        }
+    pub fn new(id: &'a Uuid) -> Self {
+        Self { id }
     }
 
-    pub async fn execute(&self, conn: &mut PgConnection) -> sqlx::Result<Option<AgentSession>> {
+    pub async fn execute(&self, conn: &mut PgConnection) -> sqlx::Result<AgentSession> {
         sqlx::query_as!(
             AgentSession,
             r#"
@@ -310,16 +308,53 @@ impl<'a> GetQuery<'a> {
                 started_at
             FROM agent_session
             WHERE
-                agent_id = $1
-                AND classroom_id = $2
-                AND replica_id = $3
+                id = $1
             LIMIT 1
             "#,
-            self.agent_id as &AgentId,
-            self.classroom_id as &ClassroomId,
-            self.replica_id
+            self.id,
         )
-        .fetch_optional(conn)
+        .fetch_one(conn)
         .await
     }
 }
+
+// pub struct GetQuery<'a> {
+//     agent_id: &'a AgentId,
+//     classroom_id: &'a ClassroomId,
+//     replica_id: &'a str,
+// }
+//
+// impl<'a> GetQuery<'a> {
+//     pub fn new(agent_id: &'a AgentId, classroom_id: &'a ClassroomId, replica_id: &'a str) -> Self {
+//         Self {
+//             agent_id,
+//             classroom_id,
+//             replica_id,
+//         }
+//     }
+//
+//     pub async fn execute(&self, conn: &mut PgConnection) -> sqlx::Result<Option<AgentSession>> {
+//         sqlx::query_as!(
+//             AgentSession,
+//             r#"
+//             SELECT
+//                 id,
+//                 agent_id AS "agent_id: AgentId",
+//                 classroom_id AS "classroom_id: ClassroomId",
+//                 replica_id,
+//                 started_at
+//             FROM agent_session
+//             WHERE
+//                 agent_id = $1
+//                 AND classroom_id = $2
+//                 AND replica_id = $3
+//             LIMIT 1
+//             "#,
+//             self.agent_id as &AgentId,
+//             self.classroom_id as &ClassroomId,
+//             self.replica_id
+//         )
+//         .fetch_optional(conn)
+//         .await
+//     }
+// }

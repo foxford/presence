@@ -6,7 +6,7 @@ use crate::{
     },
     authz::AuthzObject,
     classroom::ClassroomId,
-    db::agent_session::{self, AgentSession, InsertResult},
+    db::agent_session::{self, InsertResult},
     state::State,
 };
 use anyhow::Result;
@@ -25,11 +25,13 @@ use svc_authn::{
     jose::ConfigMap, token::jws_compact::extract::decode_jws_compact_with_config, AccountId,
     Authenticable,
 };
+// use tokio::sync::oneshot::error::RecvError;
 use tokio::{
     sync::oneshot,
     time::{interval, timeout, MissedTickBehavior},
 };
 use tracing::{error, info};
+use uuid::Uuid;
 
 pub async fn handler<S: State>(
     ws: WebSocketUpgrade,
@@ -50,14 +52,14 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
     .await;
 
     // Authentication
-    let agent_session = match authn_timeout {
+    let (session_id, agent_id, classroom_id) = match authn_timeout {
         Ok(Some(result)) => match result {
             Ok(msg) => match handle_authn_message(msg, authn, state.clone()).await {
-                Ok((m, agent_session)) => {
-                    info!("Successful authentication: {}", &agent_session.id);
+                Ok((m, (session_id, agent_id, classroom_id))) => {
+                    info!("Successful authentication: {}", &session_id);
                     let _ = sender.send(Message::Text(m)).await;
 
-                    agent_session
+                    (session_id, agent_id, classroom_id)
                 }
                 Err(e) => {
                     info!("Connection is closed (unsuccessful request)");
@@ -82,11 +84,13 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
     // To close old connections from the same agents
     let (close_tx, mut close_rx) = oneshot::channel::<()>();
 
-    if let Err(e) = state
-        .cmd_sender()
-        .send(Command::Register((agent_session.id, close_tx)))
-    {
-        error!(error = %e, "Failed to register session_id: {}", agent_session.id);
+    let identifier = (agent_id.clone(), classroom_id);
+
+    if let Err(e) = state.cmd_sender().send(Command::Register(
+        identifier.clone(),
+        (session_id, close_tx),
+    )) {
+        error!(error = %e, "Failed to register session_id: {}", session_id);
         return;
     }
 
@@ -158,7 +162,7 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
                     return;
                 }
 
-                if let Err(err) = history_manager::move_single_session(state, &agent_session).await {
+                if let Err(err) = history_manager::move_single_session(state, &session_id).await {
                     error!(error = %err, "Failed to move session to history");
                 }
 
@@ -169,12 +173,12 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
 
     if let Err(e) = state
         .cmd_sender()
-        .send(Command::Terminate(agent_session.id))
+        .send(Command::Terminate(identifier, None))
     {
-        error!(error = %e, "Failed to terminate session: {}", agent_session.id);
+        error!(error = %e, "Failed to terminate session: {}", session_id);
     }
 
-    if let Err(err) = history_manager::move_single_session(state, &agent_session).await {
+    if let Err(err) = history_manager::move_single_session(state, &session_id).await {
         error!(error = %err, "Failed to move session to history");
     }
 }
@@ -183,7 +187,7 @@ async fn handle_authn_message<S: State>(
     message: Message,
     authn: Arc<ConfigMap>,
     state: S,
-) -> Result<(String, AgentSession), ConnectError> {
+) -> Result<(String, (Uuid, AgentId, ClassroomId)), ConnectError> {
     let msg = match message {
         Message::Text(msg) => msg,
         _ => return Err(ConnectError::UnsupportedRequest),
@@ -204,9 +208,12 @@ async fn handle_authn_message<S: State>(
             };
 
             authorize_agent(state.clone(), &agent_id, &classroom_id).await?;
-            let agent_session = create_agent_session(state, classroom_id, agent_id).await?;
+            let session_id = create_agent_session(state, classroom_id, &agent_id).await?;
 
-            Ok((make_response(Response::ConnectSuccess), agent_session))
+            Ok((
+                make_response(Response::ConnectSuccess),
+                (session_id, agent_id, classroom_id),
+            ))
         }
         Err(err) => {
             error!(error = %err, "Failed to serialize a message");
@@ -218,8 +225,8 @@ async fn handle_authn_message<S: State>(
 async fn create_agent_session<S: State>(
     state: S,
     classroom_id: ClassroomId,
-    agent_id: AgentId,
-) -> Result<AgentSession, ConnectError> {
+    agent_id: &AgentId,
+) -> Result<Uuid, ConnectError> {
     let mut conn = match state.get_conn().await {
         Ok(conn) => conn,
         Err(err) => {
@@ -228,38 +235,60 @@ async fn create_agent_session<S: State>(
         }
     };
 
-    // Check existence of active agent session on the same replica
-    match agent_session::GetQuery::new(&agent_id, &classroom_id, &state.replica_id())
-        .execute(&mut conn)
-        .await
+    let (check_tx, check_rx) = oneshot::channel::<Option<Uuid>>();
+
+    let identifier = (agent_id.clone(), classroom_id);
+    if let Err(e) = state
+        .cmd_sender()
+        .send(Command::Terminate(identifier.clone(), Some(check_tx)))
     {
-        Ok(Some(session)) => {
-            if let Err(e) = state.cmd_sender().send(Command::Terminate(session.id)) {
-                error!(error = %e, "Failed to terminate session: {}", session.id);
-            }
+        error!(error = %e, "Failed to terminate session: {:?}", &identifier);
+        return Err(ConnectError::SendingMessageFailed);
+    }
 
-            return Ok(session);
-
-            // delete from hashmap
-            // close old connection
-            // return agent session
+    match check_rx.await {
+        Ok(Some(session_id)) => {
+            return Ok(session_id);
         }
-        Err(err) => {
-            error!(error = %err, "Failed to get previous agent session");
-            return Err(ConnectError::DbQueryFailed);
+        Err(_) => {
+            error!("Failed to receive previous session id: {:?}", &identifier);
+            return Err(ConnectError::ReceivingMessageFailed);
         }
         _ => {}
     }
 
+    // Check existence of active agent session on the same replica
+    // match agent_session::GetQuery::new(&agent_id, &classroom_id, &state.replica_id())
+    //     .execute(&mut conn)
+    //     .await
+    // {
+    //     Ok(Some(session)) => {
+    //         if let Err(e) = state.cmd_sender().send(Command::Terminate(session.id)) {
+    //             error!(error = %e, "Failed to terminate session: {}", session.id);
+    //         }
+    //
+    //         return Ok(session);
+    //
+    //         // delete from hashmap
+    //         // close old connection
+    //         // return agent session
+    //     }
+    //     Err(err) => {
+    //         error!(error = %err, "Failed to get previous agent session");
+    //         return Err(ConnectError::DbQueryFailed);
+    //     }
+    //     _ => {}
+    // }
+
     let insert_query = agent_session::InsertQuery::new(
-        &agent_id,
+        agent_id,
         classroom_id,
         state.replica_id(),
         OffsetDateTime::now_utc(),
     );
 
     match insert_query.execute(&mut conn).await {
-        InsertResult::Ok(agent_session) => Ok(agent_session),
+        InsertResult::Ok(agent_session) => Ok(agent_session.id),
         InsertResult::Error(err) => {
             error!(error = %err, "Failed to create an agent session");
             Err(ConnectError::DbQueryFailed)
@@ -267,7 +296,7 @@ async fn create_agent_session<S: State>(
         InsertResult::UniqIdsConstraintError => {
             // Set previous agent session as outdated
             if let Err(err) =
-                agent_session::UpdateOutdatedQuery::by_agent_and_classroom(&agent_id, classroom_id)
+                agent_session::UpdateOutdatedQuery::by_agent_and_classroom(agent_id, classroom_id)
                     .outdated(true)
                     .execute(&mut conn)
                     .await
@@ -278,7 +307,7 @@ async fn create_agent_session<S: State>(
 
             // Attempt to create a new agent session again
             return match insert_query.execute(&mut conn).await {
-                InsertResult::Ok(agent_session) => Ok(agent_session),
+                InsertResult::Ok(agent_session) => Ok(agent_session.id),
                 _ => {
                     error!("Failed to create an agent session");
                     Err(ConnectError::DbQueryFailed)
