@@ -6,7 +6,7 @@ edition = "2021"
 [dependencies]
 anyhow = "1.0"
 async-trait = "0.1"
-axum = { version = "0.4", features = ["ws"] }
+axum = { version = "0.5", features = ["ws"] }
 config = { version = "0.12", default-features = false, features = ["toml"] }
 dotenv = { version = "0.15.0", optional = true }
 futures-util = "0.3"
