@@ -1,12 +1,14 @@
 use crate::{
     app::{
         history_manager,
+        session_manager::Session,
         ws::{ConnectError, ConnectRequest, Request, Response},
         Command,
     },
     authz::AuthzObject,
     classroom::ClassroomId,
     db::agent_session::{self, InsertResult},
+    session::SessionKey,
     state::State,
 };
 use anyhow::Result;
@@ -25,7 +27,6 @@ use svc_authn::{
     jose::ConfigMap, token::jws_compact::extract::decode_jws_compact_with_config, AccountId,
     Authenticable,
 };
-// use tokio::sync::oneshot::error::RecvError;
 use tokio::{
     sync::oneshot,
     time::{interval, timeout, MissedTickBehavior},
@@ -84,13 +85,12 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
     // To close old connections from the same agents
     let (close_tx, mut close_rx) = oneshot::channel::<()>();
 
-    let identifier = (agent_id.clone(), classroom_id);
-
+    let session_key = SessionKey::new(agent_id, classroom_id);
     if let Err(e) = state.cmd_sender().send(Command::Register(
-        identifier.clone(),
+        session_key.clone(),
         (session_id, close_tx),
     )) {
-        error!(error = %e, "Failed to register session_id: {}", session_id);
+        error!(error = %e, "Failed to register session_id: {}", &session_id);
         return;
     }
 
@@ -173,7 +173,7 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
 
     if let Err(e) = state
         .cmd_sender()
-        .send(Command::Terminate(identifier, None))
+        .send(Command::Terminate(session_key, None))
     {
         error!(error = %e, "Failed to terminate session: {}", session_id);
     }
@@ -235,50 +235,28 @@ async fn create_agent_session<S: State>(
         }
     };
 
-    let (check_tx, check_rx) = oneshot::channel::<Option<Uuid>>();
-
-    let identifier = (agent_id.clone(), classroom_id);
+    // Attempt to close old session on the same replica
+    let (check_tx, check_rx) = oneshot::channel::<Session>();
+    let session_key = SessionKey::new(agent_id.clone(), classroom_id);
     if let Err(e) = state
         .cmd_sender()
-        .send(Command::Terminate(identifier.clone(), Some(check_tx)))
+        .send(Command::Terminate(session_key.clone(), Some(check_tx)))
     {
-        error!(error = %e, "Failed to terminate session: {:?}", &identifier);
+        error!(error = %e, "Failed to terminate session: {}", &session_key);
         return Err(ConnectError::SendingMessageFailed);
     }
 
+    // If the session is found, don't create a new session and return the previous id
     match check_rx.await {
-        Ok(Some(session_id)) => {
+        Ok(Session::Found(session_id)) => {
             return Ok(session_id);
         }
         Err(_) => {
-            error!("Failed to receive previous session id: {:?}", &identifier);
+            error!("Failed to receive previous session id: {}", &session_key);
             return Err(ConnectError::ReceivingMessageFailed);
         }
         _ => {}
     }
-
-    // Check existence of active agent session on the same replica
-    // match agent_session::GetQuery::new(&agent_id, &classroom_id, &state.replica_id())
-    //     .execute(&mut conn)
-    //     .await
-    // {
-    //     Ok(Some(session)) => {
-    //         if let Err(e) = state.cmd_sender().send(Command::Terminate(session.id)) {
-    //             error!(error = %e, "Failed to terminate session: {}", session.id);
-    //         }
-    //
-    //         return Ok(session);
-    //
-    //         // delete from hashmap
-    //         // close old connection
-    //         // return agent session
-    //     }
-    //     Err(err) => {
-    //         error!(error = %err, "Failed to get previous agent session");
-    //         return Err(ConnectError::DbQueryFailed);
-    //     }
-    //     _ => {}
-    // }
 
     let insert_query = agent_session::InsertQuery::new(
         agent_id,
