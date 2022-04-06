@@ -8,11 +8,14 @@ use tokio::{
 use tracing::error;
 use uuid::Uuid;
 
+#[derive(Debug)]
 pub enum Session {
     NotFound,
     Found(Uuid),
+    Skip,
 }
 
+#[derive(Debug)]
 pub enum Command {
     Register(SessionKey, (Uuid, oneshot::Sender<()>)),
     Terminate(SessionKey, Option<oneshot::Sender<Session>>),

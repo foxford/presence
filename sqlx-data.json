@@ -67,98 +67,7 @@
     },
     "query": "\n            UPDATE agent_session_history\n            SET lifetime = $2\n            WHERE id = $1\n            "
   },
-  "3ed067833c47d8c44fad3840301d6d8734bd30603abd196682eabe065e50ae16": {
-    "describe": {
-      "columns": [
-        {
-          "name": "classroom_id: ClassroomId",
-          "ordinal": 0,
-          "type_info": "Uuid"
-        },
-        {
-          "name": "count!",
-          "ordinal": 1,
-          "type_info": "Int8"
-        }
-      ],
-      "nullable": [
-        false,
-        null
-      ],
-      "parameters": {
-        "Left": [
-          "UuidArray"
-        ]
-      }
-    },
-    "query": "\n            SELECT\n                classroom_id AS \"classroom_id: ClassroomId\",\n                COUNT(agent_id) AS \"count!\"\n            FROM agent_session\n            WHERE\n                classroom_id = ANY ($1)\n            GROUP BY classroom_id\n            "
-  },
-  "48e5bb172f0f431593aa8741bb287ca935fd1211eadd61ec38958dc627e66769": {
-    "describe": {
-      "columns": [],
-      "nullable": [],
-      "parameters": {
-        "Left": [
-          "Uuid",
-          {
-            "Custom": {
-              "kind": {
-                "Composite": [
-                  [
-                    "account_id",
-                    {
-                      "Custom": {
-                        "kind": {
-                          "Composite": [
-                            [
-                              "label",
-                              "Text"
-                            ],
-                            [
-                              "audience",
-                              "Text"
-                            ]
-                          ]
-                        },
-                        "name": "account_id"
-                      }
-                    }
-                  ],
-                  [
-                    "label",
-                    "Text"
-                  ]
-                ]
-              },
-              "name": "agent_id"
-            }
-          },
-          "Uuid",
-          "TstzRange"
-        ]
-      }
-    },
-    "query": "\n            INSERT INTO agent_session_history\n                (id, agent_id, classroom_id, lifetime)\n            VALUES ($1, $2, $3, $4)\n            "
-  },
-  "748be24f4129ea2a18b635ad5039d8655b33e247ea285829438db1991fce4255": {
-    "describe": {
-      "columns": [
-        {
-          "name": "total",
-          "ordinal": 0,
-          "type_info": "Int8"
-        }
-      ],
-      "nullable": [
-        null
-      ],
-      "parameters": {
-        "Left": []
-      }
-    },
-    "query": "\n            SELECT\n                COUNT(*) AS total\n            FROM\n                agent_session_history\n            "
-  },
-  "881fd1814ce6c5cbfdf32037a76c4395339d4c6add971abf99509ccfc6e03770": {
+  "2385be947552884b85ff650005300b4860a49c0121ea16111919542b152bf06e": {
     "describe": {
       "columns": [
         {
@@ -228,13 +137,309 @@
       ],
       "parameters": {
         "Left": [
+          {
+            "Custom": {
+              "kind": {
+                "Composite": [
+                  [
+                    "account_id",
+                    {
+                      "Custom": {
+                        "kind": {
+                          "Composite": [
+                            [
+                              "label",
+                              "Text"
+                            ],
+                            [
+                              "audience",
+                              "Text"
+                            ]
+                          ]
+                        },
+                        "name": "account_id"
+                      }
+                    }
+                  ],
+                  [
+                    "label",
+                    "Text"
+                  ]
+                ]
+              },
+              "name": "agent_id"
+            }
+          },
+          "Uuid",
+          "Text",
+          "Timestamptz"
+        ]
+      }
+    },
+    "query": "\n            INSERT INTO agent_session\n                (agent_id, classroom_id, replica_id, started_at)\n            VALUES ($1, $2, $3, $4)\n            RETURNING\n                id,\n                agent_id AS \"agent_id: AgentId\",\n                classroom_id AS \"classroom_id: ClassroomId\",\n                replica_id,\n                started_at\n            "
+  },
+  "30b7eb467ae2b1f30a15dc04cfd3b53fd60307da345c1721ea8d8ce72b7e593a": {
+    "describe": {
+      "columns": [
+        {
+          "name": "id!",
+          "ordinal": 0,
+          "type_info": "Uuid"
+        },
+        {
+          "name": "lifetime!",
+          "ordinal": 1,
+          "type_info": "TstzRange"
+        }
+      ],
+      "nullable": [
+        false,
+        false
+      ],
+      "parameters": {
+        "Left": [
           "Record",
           "Uuid",
+          "Timestamptz"
+        ]
+      }
+    },
+    "query": "\n            SELECT\n                id AS \"id!\",\n                lifetime AS \"lifetime!\"\n            FROM agent_session_history\n            WHERE\n                agent_id = $1\n                AND classroom_id = $2\n                AND lifetime && tstzrange($3, now())\n            LIMIT 1\n            "
+  },
+  "35b166044ea26bd71ebad7be36a97c574a0a213c6ed13568f09b3116f21a83a7": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "UuidArray",
           "Text"
         ]
       }
     },
-    "query": "\n            SELECT\n                id,\n                agent_id AS \"agent_id: AgentId\",\n                classroom_id AS \"classroom_id: ClassroomId\",\n                replica_id,\n                started_at\n            FROM agent_session\n            WHERE\n                agent_id = $1\n                AND classroom_id = $2\n                AND replica_id = $3\n            "
+    "query": "\n            DELETE FROM agent_session\n            WHERE id = ANY ($1)\n            AND replica_id = $2\n            "
+  },
+  "3a25a118b6645b6a108a814dfb0909a017cbdcd9eda6a57ac1d2c7cc75727e62": {
+    "describe": {
+      "columns": [
+        {
+          "name": "id",
+          "ordinal": 0,
+          "type_info": "Uuid"
+        },
+        {
+          "name": "agent_id: AgentId",
+          "ordinal": 1,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Composite": [
+                  [
+                    "account_id",
+                    {
+                      "Custom": {
+                        "kind": {
+                          "Composite": [
+                            [
+                              "label",
+                              "Text"
+                            ],
+                            [
+                              "audience",
+                              "Text"
+                            ]
+                          ]
+                        },
+                        "name": "account_id"
+                      }
+                    }
+                  ],
+                  [
+                    "label",
+                    "Text"
+                  ]
+                ]
+              },
+              "name": "agent_id"
+            }
+          }
+        },
+        {
+          "name": "classroom_id: ClassroomId",
+          "ordinal": 2,
+          "type_info": "Uuid"
+        },
+        {
+          "name": "replica_id",
+          "ordinal": 3,
+          "type_info": "Text"
+        },
+        {
+          "name": "started_at",
+          "ordinal": 4,
+          "type_info": "Timestamptz"
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Uuid"
+        ]
+      }
+    },
+    "query": "\n            SELECT\n                id,\n                agent_id AS \"agent_id: AgentId\",\n                classroom_id AS \"classroom_id: ClassroomId\",\n                replica_id,\n                started_at\n            FROM agent_session\n            WHERE\n                id = $1\n            LIMIT 1\n            "
+  },
+  "3ed067833c47d8c44fad3840301d6d8734bd30603abd196682eabe065e50ae16": {
+    "describe": {
+      "columns": [
+        {
+          "name": "classroom_id: ClassroomId",
+          "ordinal": 0,
+          "type_info": "Uuid"
+        },
+        {
+          "name": "count!",
+          "ordinal": 1,
+          "type_info": "Int8"
+        }
+      ],
+      "nullable": [
+        false,
+        null
+      ],
+      "parameters": {
+        "Left": [
+          "UuidArray"
+        ]
+      }
+    },
+    "query": "\n            SELECT\n                classroom_id AS \"classroom_id: ClassroomId\",\n                COUNT(agent_id) AS \"count!\"\n            FROM agent_session\n            WHERE\n                classroom_id = ANY ($1)\n            GROUP BY classroom_id\n            "
+  },
+  "40f536ec778e8ab27f1d865c4727cd2cce0ce380134ba647da0f7eff04eb1c36": {
+    "describe": {
+      "columns": [
+        {
+          "name": "id!",
+          "ordinal": 0,
+          "type_info": "Uuid"
+        }
+      ],
+      "nullable": [
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Text",
+          "UuidArray"
+        ]
+      }
+    },
+    "query": "\n            WITH sq AS (\n                SELECT s.id,\n                       s.agent_id,\n                       s.classroom_id,\n                       tstzrange(s.started_at, now()) AS lifetime\n                FROM agent_session s\n                WHERE replica_id = $1\n                  AND id != ANY ($2)\n            )\n            INSERT\n            INTO agent_session_history\n                (id, agent_id, classroom_id, lifetime)\n            SELECT *\n            FROM sq\n            RETURNING id AS \"id!\"\n            "
+  },
+  "41b3b699623668f6937fadee9f8f6aa14fa6455330e56e93f003d0c0559d43c0": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Bool",
+          "Record",
+          "Uuid"
+        ]
+      }
+    },
+    "query": "\n            UPDATE agent_session\n            SET outdated = $1\n            WHERE\n                agent_id = $2\n                AND classroom_id = $3\n            "
+  },
+  "584583538364f01744a7ea5130789ece09dd239b79b7f77453a294b5ee3c7f98": {
+    "describe": {
+      "columns": [
+        {
+          "name": "id",
+          "ordinal": 0,
+          "type_info": "Uuid"
+        }
+      ],
+      "nullable": [
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Text"
+        ]
+      }
+    },
+    "query": "\n            WITH hq AS (\n                SELECT\n                    s.id,\n                    ash.id AS history_id,\n                    tstzrange(lower(ash.lifetime), now()) AS new_lifetime\n                FROM agent_session s\n                    LEFT OUTER JOIN agent_session_history ash\n                        ON ash.agent_id = s.agent_id\n                            AND ash.classroom_id = s.classroom_id\n                            AND ash.lifetime && tstzrange(s.started_at, now())\n                WHERE s.replica_id = $1\n            )\n            UPDATE agent_session_history ash\n            SET lifetime = hq.new_lifetime\n            FROM hq\n            WHERE hq.history_id = ash.id\n            RETURNING hq.id\n            "
+  },
+  "748be24f4129ea2a18b635ad5039d8655b33e247ea285829438db1991fce4255": {
+    "describe": {
+      "columns": [
+        {
+          "name": "total",
+          "ordinal": 0,
+          "type_info": "Int8"
+        }
+      ],
+      "nullable": [
+        null
+      ],
+      "parameters": {
+        "Left": []
+      }
+    },
+    "query": "\n            SELECT\n                COUNT(*) AS total\n            FROM\n                agent_session_history\n            "
+  },
+  "8e89f39019535066ab8aee48d955bfa336d7b9dd5075ff530acace08855ecb72": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Uuid",
+          {
+            "Custom": {
+              "kind": {
+                "Composite": [
+                  [
+                    "account_id",
+                    {
+                      "Custom": {
+                        "kind": {
+                          "Composite": [
+                            [
+                              "label",
+                              "Text"
+                            ],
+                            [
+                              "audience",
+                              "Text"
+                            ]
+                          ]
+                        },
+                        "name": "account_id"
+                      }
+                    }
+                  ],
+                  [
+                    "label",
+                    "Text"
+                  ]
+                ]
+              },
+              "name": "agent_id"
+            }
+          },
+          "Uuid",
+          "Timestamptz"
+        ]
+      }
+    },
+    "query": "\n            INSERT INTO agent_session_history\n                (id, agent_id, classroom_id, lifetime)\n            VALUES ($1, $2, $3, tstzrange($4, now()))\n            "
   },
   "c933897bae1096d9046189b27ec5f1baa4c6d8fff3637de5c2c0a0d553ddf67a": {
     "describe": {
@@ -254,32 +459,25 @@
     },
     "query": "\n            SELECT\n                COUNT(*) AS total\n            FROM\n                agent_session\n            "
   },
-  "e5e22252e1c8b3447c19b1321d6556236c1a7c2a37567bbcd4e9d8d78b7906c0": {
+  "fe51416b03762838cded8a587c0b88128e49652950250762f12a2ced3f0ddb23": {
     "describe": {
       "columns": [
         {
-          "name": "id",
+          "name": "session_key!: SessionKey",
           "ordinal": 0,
-          "type_info": "Uuid"
-        },
-        {
-          "name": "lifetime",
-          "ordinal": 1,
-          "type_info": "TstzRange"
+          "type_info": "Record"
         }
       ],
       "nullable": [
-        false,
-        false
+        null
       ],
       "parameters": {
         "Left": [
-          "Record",
-          "Uuid",
-          "TstzRange"
+          "Text",
+          "Bool"
         ]
       }
     },
-    "query": "\n            SELECT\n                id, lifetime\n            FROM agent_session_history\n            WHERE\n                agent_id = $1\n                AND classroom_id = $2\n                AND lifetime && $3\n            LIMIT 1\n            "
+    "query": "\n            SELECT\n                (agent_id, classroom_id) AS \"session_key!: SessionKey\"\n            FROM agent_session\n            WHERE\n                replica_id = $1\n                AND outdated = $2\n            "
   }
 }

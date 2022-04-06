@@ -34,8 +34,7 @@ enum ConnectError {
     DbConnAcquisitionFailed,
     DbQueryFailed,
     SerializationFailed,
-    SendingMessageFailed,
-    ReceivingMessageFailed,
+    MessagingFailed,
 }
 
 impl From<ConnectError> for Response {
@@ -64,12 +63,9 @@ impl From<ConnectError> for Response {
             ConnectError::SerializationFailed => builder
                 .status(StatusCode::UNPROCESSABLE_ENTITY)
                 .kind("serialization_failed", "Serialization failed"),
-            ConnectError::SendingMessageFailed => builder
+            ConnectError::MessagingFailed => builder
                 .status(StatusCode::UNPROCESSABLE_ENTITY)
-                .kind("sending_message_failed", "Sending message failed"),
-            ConnectError::ReceivingMessageFailed => builder
-                .status(StatusCode::UNPROCESSABLE_ENTITY)
-                .kind("receiving_message_failed", "Receiving message failed"),
+                .kind("messaging_failed", "Messaging failed"),
         };
 
         let error = builder.build();

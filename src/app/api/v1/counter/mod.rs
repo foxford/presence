@@ -73,11 +73,7 @@ async fn do_count_agents<S: State>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        classroom::ClassroomId,
-        db::agent_session::{self, SessionKind},
-        test_helpers::prelude::*,
-    };
+    use crate::{classroom::ClassroomId, db::agent_session, test_helpers::prelude::*};
     use axum::{body::HttpBody, response::IntoResponse};
     use serde_json::Value;
     use sqlx::types::time::OffsetDateTime;
@@ -123,24 +119,20 @@ mod tests {
             let replica = "replica_id".to_string();
 
             agent_session::InsertQuery::new(
-                None,
-                agent_1.agent_id().to_owned(),
+                agent_1.agent_id(),
                 classroom_id,
                 replica.clone(),
                 OffsetDateTime::now_utc(),
-                SessionKind::Active,
             )
             .execute(&mut conn)
             .await
             .expect("Failed to insert first agent session");
 
             agent_session::InsertQuery::new(
-                None,
-                agent_2.agent_id().to_owned(),
+                agent_2.agent_id(),
                 classroom_id,
                 replica,
                 OffsetDateTime::now_utc(),
-                SessionKind::Active,
             )
             .execute(&mut conn)
             .await

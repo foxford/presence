@@ -2,7 +2,7 @@ use crate::classroom::ClassroomId;
 use std::fmt::{Display, Formatter};
 use svc_agent::AgentId;
 
-#[derive(Hash, Eq, PartialEq, Clone, sqlx::Type)]
+#[derive(Hash, Eq, PartialEq, Clone, sqlx::Type, Debug)]
 pub struct SessionKey((AgentId, ClassroomId));
 
 impl SessionKey {

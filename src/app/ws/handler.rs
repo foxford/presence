@@ -3,7 +3,6 @@ use crate::{
         history_manager,
         session_manager::Session,
         ws::{ConnectError, ConnectRequest, Request, Response},
-        Command,
     },
     authz::AuthzObject,
     classroom::ClassroomId,
@@ -27,10 +26,7 @@ use svc_authn::{
     jose::ConfigMap, token::jws_compact::extract::decode_jws_compact_with_config, AccountId,
     Authenticable,
 };
-use tokio::{
-    sync::oneshot,
-    time::{interval, timeout, MissedTickBehavior},
-};
+use tokio::time::{interval, timeout, MissedTickBehavior};
 use tracing::{error, info};
 use uuid::Uuid;
 
@@ -83,16 +79,14 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
     };
 
     // To close old connections from the same agents
-    let (close_tx, mut close_rx) = oneshot::channel::<()>();
-
     let session_key = SessionKey::new(agent_id, classroom_id);
-    if let Err(e) = state.cmd_sender().send(Command::Register(
-        session_key.clone(),
-        (session_id, close_tx),
-    )) {
-        error!(error = %e, "Failed to register session_id: {}", &session_id);
-        return;
-    }
+    let mut close_rx = match state.register_session(session_key.clone(), session_id) {
+        Ok(rx) => rx,
+        Err(e) => {
+            error!(error = %e, "Failed to register session_id: {}", &session_id);
+            return;
+        }
+    };
 
     let mut ping_sent = false;
 
@@ -171,10 +165,7 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
         }
     }
 
-    if let Err(e) = state
-        .cmd_sender()
-        .send(Command::Terminate(session_key, None))
-    {
+    if let Err(e) = state.terminate_session(session_key, false).await {
         error!(error = %e, "Failed to terminate session: {}", session_id);
     }
 
@@ -236,24 +227,15 @@ async fn create_agent_session<S: State>(
     };
 
     // Attempt to close old session on the same replica
-    let (check_tx, check_rx) = oneshot::channel::<Session>();
     let session_key = SessionKey::new(agent_id.clone(), classroom_id);
-    if let Err(e) = state
-        .cmd_sender()
-        .send(Command::Terminate(session_key.clone(), Some(check_tx)))
-    {
-        error!(error = %e, "Failed to terminate session: {}", &session_key);
-        return Err(ConnectError::SendingMessageFailed);
-    }
-
     // If the session is found, don't create a new session and return the previous id
-    match check_rx.await {
+    match state.terminate_session(session_key.clone(), false).await {
         Ok(Session::Found(session_id)) => {
             return Ok(session_id);
         }
-        Err(_) => {
-            error!("Failed to receive previous session id: {}", &session_key);
-            return Err(ConnectError::ReceivingMessageFailed);
+        Err(e) => {
+            error!(error = %e, "Failed to terminate session: {}", &session_key);
+            return Err(ConnectError::MessagingFailed);
         }
         _ => {}
     }
@@ -458,7 +440,7 @@ mod tests {
             );
             let state = TestState::new(db_pool, authz);
 
-            let (resp, session) = handle_authn_message(msg, authn, state)
+            let (resp, (_, agent_id, classroom_id)) = handle_authn_message(msg, authn, state)
                 .await
                 .expect("Failed to handle authentication message");
 
@@ -466,8 +448,8 @@ mod tests {
                 .expect("Failed to serialize response");
 
             assert_eq!(resp, success);
-            assert_eq!(session.agent_id, agent.agent_id().to_owned());
-            assert_eq!(session.classroom_id, classroom_id);
+            assert_eq!(agent_id, agent.agent_id().to_owned());
+            assert_eq!(classroom_id, classroom_id);
         }
     }
 }

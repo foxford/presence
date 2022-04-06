@@ -7,6 +7,7 @@ use sqlx::Connection;
 use uuid::Uuid;
 
 /// Moves all session from the `agent_session` table in `agent_session_history`.
+// TODO: Add test
 pub async fn move_all_sessions<S: State>(state: S, replica_id: &str) -> Result<()> {
     let mut conn = state
         .get_conn()
@@ -115,6 +116,7 @@ pub async fn move_single_session<S: State>(state: S, session_id: &Uuid) -> Resul
 mod tests {
     use super::*;
     use crate::{classroom::ClassroomId, test_helpers::prelude::*};
+    use sqlx::types::time::OffsetDateTime;
     use uuid::Uuid;
 
     #[tokio::test]
@@ -129,9 +131,9 @@ mod tests {
             let mut conn = db_pool.get_conn().await;
 
             agent_session::InsertQuery::new(
-                agent.agent_id().to_owned(),
+                agent.agent_id(),
                 classroom_id,
-                "replica".to_string(),
+                "presence_1".to_string(),
                 OffsetDateTime::now_utc(),
             )
             .execute(&mut conn)
@@ -139,11 +141,12 @@ mod tests {
             .expect("Failed to insert an agent session")
         };
 
-        let mut conn = db_pool.get_conn().await;
-        move_session(&mut conn, session, SessionKind::Active)
+        let state = TestState::new(db_pool.clone(), TestAuthz::new());
+        move_single_session(state, &session.id)
             .await
             .expect("Failed to move session to history");
 
+        let mut conn = db_pool.get_conn().await;
         let agents_count = factory::agent_session::AgentSessionCounter::count(&mut conn)
             .await
             .expect("Failed to count agent session");
@@ -169,7 +172,7 @@ mod tests {
             let mut conn = db_pool.get_conn().await;
 
             let session = agent_session::InsertQuery::new(
-                agent.agent_id().to_owned(),
+                agent.agent_id(),
                 classroom_id,
                 "replica".to_string(),
                 OffsetDateTime::now_utc(),
@@ -178,7 +181,7 @@ mod tests {
             .await
             .expect("Failed to insert an agent session");
 
-            agent_session_history::InsertQuery::new(session.clone(), OffsetDateTime::now_utc())
+            agent_session_history::InsertQuery::new(&session)
                 .execute(&mut conn)
                 .await
                 .expect("Failed to insert an agent session history");
@@ -186,11 +189,12 @@ mod tests {
             session
         };
 
-        let mut conn = db_pool.get_conn().await;
-        move_session(&mut conn, session)
+        let state = TestState::new(db_pool.clone(), TestAuthz::new());
+        move_single_session(state, &session.id)
             .await
             .expect("Failed to move session to history");
 
+        let mut conn = db_pool.get_conn().await;
         let history_count =
             factory::agent_session_history::AgentSessionHistoryCounter::count(&mut conn)
                 .await

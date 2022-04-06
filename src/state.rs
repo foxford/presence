@@ -1,17 +1,35 @@
+use crate::app::session_manager::Session;
+use crate::session::SessionKey;
 use crate::{app::session_manager::Command, config::Config};
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use sqlx::{pool::PoolConnection, PgPool, Postgres};
 use std::sync::Arc;
 use svc_authz::ClientMap as Authz;
-use tokio::sync::mpsc::UnboundedSender;
+use tokio::sync::{mpsc::UnboundedSender, oneshot};
+use uuid::Uuid;
+
+pub trait CommandSend {
+    fn send(&self, cmd: Command) -> Result<()>;
+}
+
+impl CommandSend for UnboundedSender<Command> {
+    fn send(&self, cmd: Command) -> Result<()> {
+        self.send(cmd).context("failed to send command")
+    }
+}
 
 #[async_trait]
 pub trait State: Send + Sync + Clone + 'static {
     fn config(&self) -> &Config;
     fn authz(&self) -> &Authz;
     fn replica_id(&self) -> String;
-    fn cmd_sender(&self) -> UnboundedSender<Command>;
+    fn register_session(
+        &self,
+        session_key: SessionKey,
+        session_id: Uuid,
+    ) -> Result<oneshot::Receiver<()>>;
+    async fn terminate_session(&self, session_key: SessionKey, return_id: bool) -> Result<Session>;
     async fn get_conn(&self) -> Result<PoolConnection<Postgres>>;
 }
 
@@ -62,8 +80,34 @@ impl State for AppState {
         self.inner.replica_id.clone()
     }
 
-    fn cmd_sender(&self) -> UnboundedSender<Command> {
-        self.inner.cmd_sender.clone()
+    fn register_session(
+        &self,
+        session_key: SessionKey,
+        session_id: Uuid,
+    ) -> Result<oneshot::Receiver<()>> {
+        let (tx, rx) = oneshot::channel::<()>();
+        self.inner
+            .cmd_sender
+            .send(Command::Register(session_key, (session_id, tx)))?;
+
+        Ok(rx)
+    }
+
+    async fn terminate_session(&self, session_key: SessionKey, return_id: bool) -> Result<Session> {
+        if return_id {
+            let (tx, rx) = oneshot::channel::<Session>();
+            self.inner
+                .cmd_sender
+                .send(Command::Terminate(session_key, Some(tx)))?;
+
+            return rx.await.context("failed to receive previous session id");
+        }
+
+        self.inner
+            .cmd_sender
+            .send(Command::Terminate(session_key, None))?;
+
+        Ok(Session::Skip)
     }
 
     async fn get_conn(&self) -> Result<PoolConnection<Postgres>> {

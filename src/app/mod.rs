@@ -1,4 +1,4 @@
-use crate::{app::session_manager::Command, authz::AuthzCache, state::AppState};
+use crate::{authz::AuthzCache, state::AppState};
 use anyhow::{Context, Result};
 use futures_util::StreamExt;
 use signal_hook::consts::TERM_SIGNALS;
@@ -28,7 +28,7 @@ pub async fn run(db: PgPool, authz_cache: Option<AuthzCache>) -> Result<()> {
         .context("Error converting authz config to clients")?;
 
     // A channel for managing agent session via sending commands from WebSocket handler
-    let (cmd_tx, cmd_rx) = mpsc::unbounded_channel::<Command>();
+    let (cmd_tx, cmd_rx) = mpsc::unbounded_channel::<session_manager::Command>();
 
     let state = AppState::new(config.clone(), db, authz, replica_id.clone(), cmd_tx);
     let router = router::new(state.clone(), config.authn.clone());

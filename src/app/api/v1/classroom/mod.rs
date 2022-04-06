@@ -88,7 +88,7 @@ mod tests {
     use super::*;
     use crate::{
         classroom::ClassroomId,
-        db::agent_session::{self, Agent, SessionKind},
+        db::agent_session::{self, Agent},
         test_helpers::prelude::*,
     };
     use axum::{body::HttpBody, response::IntoResponse};
@@ -136,12 +136,10 @@ mod tests {
             let mut conn = db_pool.get_conn().await;
 
             agent_session::InsertQuery::new(
-                None,
-                agent.agent_id().to_owned(),
+                agent.agent_id(),
                 classroom_id,
                 "replica".to_string(),
                 OffsetDateTime::now_utc(),
-                SessionKind::Active,
             )
             .execute(&mut conn)
             .await
