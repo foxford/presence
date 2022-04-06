@@ -1,4 +1,4 @@
-use crate::{classroom::ClassroomId, db::agent_session::AgentSession};
+use crate::{classroom::ClassroomId, db::agent_session::AgentSession, session::SessionId};
 use sqlx::{
     postgres::{types::PgRange, PgQueryResult},
     types::time::OffsetDateTime,
@@ -6,10 +6,9 @@ use sqlx::{
 };
 use std::collections::Bound;
 use svc_agent::AgentId;
-use uuid::Uuid;
 
 pub struct AgentSessionHistory {
-    pub id: Uuid,
+    pub id: SessionId,
     pub lifetime: PgRange<OffsetDateTime>,
 }
 
@@ -30,7 +29,7 @@ impl<'a> CheckLifetimeOverlapQuery<'a> {
             AgentSessionHistory,
             r#"
             SELECT
-                id AS "id!",
+                id AS "id!: SessionId",
                 lifetime AS "lifetime!"
             FROM agent_session_history
             WHERE
@@ -64,7 +63,7 @@ impl<'a> InsertQuery<'a> {
                 (id, agent_id, classroom_id, lifetime)
             VALUES ($1, $2, $3, tstzrange($4, now()))
             "#,
-            &self.agent_session.id,
+            &self.agent_session.id as &SessionId,
             &self.agent_session.agent_id as &AgentId,
             &self.agent_session.classroom_id as &ClassroomId,
             &self.agent_session.started_at
@@ -75,12 +74,12 @@ impl<'a> InsertQuery<'a> {
 }
 
 pub struct UpdateLifetimeQuery {
-    id: Uuid,
+    id: SessionId,
     started_at: Bound<OffsetDateTime>,
 }
 
 impl UpdateLifetimeQuery {
-    pub fn new(id: Uuid, started_at: Bound<OffsetDateTime>) -> Self {
+    pub fn new(id: SessionId, started_at: Bound<OffsetDateTime>) -> Self {
         Self { id, started_at }
     }
 
@@ -91,7 +90,7 @@ impl UpdateLifetimeQuery {
             SET lifetime = $2
             WHERE id = $1
             "#,
-            self.id,
+            self.id as SessionId,
             PgRange::from((self.started_at, Bound::Excluded(OffsetDateTime::now_utc())))
         )
         .execute(conn)
@@ -99,22 +98,17 @@ impl UpdateLifetimeQuery {
     }
 }
 
-pub struct UpdateAllLifetimesQuery<'a> {
+pub struct UpdateLifetimesQuery<'a> {
     replica_id: &'a str,
 }
 
-pub struct SessionId {
-    pub id: Uuid,
-}
-
-impl<'a> UpdateAllLifetimesQuery<'a> {
+impl<'a> UpdateLifetimesQuery<'a> {
     pub fn by_replica(replica_id: &'a str) -> Self {
         Self { replica_id }
     }
 
     pub async fn execute(&self, conn: &mut PgConnection) -> sqlx::Result<Vec<SessionId>> {
-        sqlx::query_as!(
-            SessionId,
+        sqlx::query_scalar!(
             r#"
             WITH hq AS (
                 SELECT
@@ -132,7 +126,7 @@ impl<'a> UpdateAllLifetimesQuery<'a> {
             SET lifetime = hq.new_lifetime
             FROM hq
             WHERE hq.history_id = ash.id
-            RETURNING hq.id
+            RETURNING hq.id AS "id: SessionId"
             "#,
             self.replica_id
         )
@@ -141,12 +135,12 @@ impl<'a> UpdateAllLifetimesQuery<'a> {
     }
 }
 
-pub struct InsertAllFromAgentSessionQuery<'a> {
+pub struct InsertFromAgentSessionQuery<'a> {
     replica_id: &'a str,
-    except: &'a [Uuid],
+    except: &'a [SessionId],
 }
 
-impl<'a> InsertAllFromAgentSessionQuery<'a> {
+impl<'a> InsertFromAgentSessionQuery<'a> {
     pub fn by_replica(replica_id: &'a str) -> Self {
         Self {
             replica_id,
@@ -154,34 +148,47 @@ impl<'a> InsertAllFromAgentSessionQuery<'a> {
         }
     }
 
-    pub fn except(self, except: &'a [Uuid]) -> Self {
+    pub fn except(self, except: &'a [SessionId]) -> Self {
         Self { except, ..self }
     }
 
     pub async fn execute(&self, conn: &mut PgConnection) -> sqlx::Result<Vec<SessionId>> {
-        sqlx::query_as!(
-            SessionId,
+        let mut select_sql = String::from(
             r#"
-            WITH sq AS (
-                SELECT s.id,
-                       s.agent_id,
-                       s.classroom_id,
-                       tstzrange(s.started_at, now()) AS lifetime
-                FROM agent_session s
-                WHERE replica_id = $1
-                  AND id != ANY ($2)
-            )
+            SELECT s.id,
+                   s.agent_id,
+                   s.classroom_id,
+                   tstzrange(s.started_at, now()) AS lifetime
+            FROM agent_session s
+            WHERE replica_id = $1
+        "#,
+        );
+
+        if !self.except.is_empty() {
+            select_sql = format!("{} AND id != ANY ($2)", select_sql);
+        }
+
+        let sql = format!(
+            r#"
+            WITH sq AS ({})
             INSERT
             INTO agent_session_history
                 (id, agent_id, classroom_id, lifetime)
             SELECT *
             FROM sq
-            RETURNING id AS "id!"
-            "#,
-            self.replica_id,
-            self.except
-        )
-        .fetch_all(conn)
-        .await
+            RETURNING id AS "id!: SessionId"
+        "#,
+            select_sql
+        );
+
+        let q = if self.except.is_empty() {
+            sqlx::query_scalar(&sql).bind(self.replica_id)
+        } else {
+            sqlx::query_scalar(&sql)
+                .bind(self.replica_id)
+                .bind(self.except)
+        };
+
+        q.fetch_all(conn).await
     }
 }

@@ -1,14 +1,15 @@
-use crate::classroom::ClassroomId;
-use crate::session::SessionKey;
+use crate::{
+    classroom::ClassroomId,
+    session::{SessionId, SessionKey},
+};
 use serde_derive::Serialize;
 use sqlx::{postgres::PgQueryResult, types::time::OffsetDateTime, Error, PgConnection};
 use std::collections::HashMap;
 use svc_agent::AgentId;
-use uuid::Uuid;
 
 #[derive(Clone, Debug, sqlx::FromRow)]
 pub struct AgentSession {
-    pub id: Uuid,
+    pub id: SessionId,
     pub agent_id: AgentId,
     pub classroom_id: ClassroomId,
     pub replica_id: String,
@@ -20,6 +21,7 @@ pub struct InsertQuery<'a> {
     classroom_id: ClassroomId,
     replica_id: String,
     started_at: OffsetDateTime,
+    outdated: bool,
 }
 
 pub enum InsertResult {
@@ -55,7 +57,14 @@ impl<'a> InsertQuery<'a> {
             classroom_id,
             replica_id,
             started_at,
+            outdated: false,
         }
+    }
+
+    #[cfg(test)]
+    pub fn outdated(mut self, value: bool) -> Self {
+        self.outdated = value;
+        self
     }
 
     pub async fn execute(&self, conn: &mut PgConnection) -> InsertResult {
@@ -63,10 +72,10 @@ impl<'a> InsertQuery<'a> {
             AgentSession,
             r#"
             INSERT INTO agent_session
-                (agent_id, classroom_id, replica_id, started_at)
-            VALUES ($1, $2, $3, $4)
+                (agent_id, classroom_id, replica_id, started_at, outdated)
+            VALUES ($1, $2, $3, $4, $5)
             RETURNING
-                id,
+                id AS "id: SessionId",
                 agent_id AS "agent_id: AgentId",
                 classroom_id AS "classroom_id: ClassroomId",
                 replica_id,
@@ -75,7 +84,8 @@ impl<'a> InsertQuery<'a> {
             self.agent_id as &AgentId,
             self.classroom_id as ClassroomId,
             self.replica_id,
-            self.started_at
+            self.started_at,
+            self.outdated,
         );
 
         match query.fetch_one(conn).await {
@@ -95,12 +105,12 @@ impl<'a> InsertQuery<'a> {
 }
 
 pub struct DeleteQuery<'a> {
-    ids: &'a [Uuid],
+    ids: &'a [SessionId],
     replica_id: &'a str,
 }
 
 impl<'a> DeleteQuery<'a> {
-    pub fn by_replica(replica_id: &'a str, ids: &'a [Uuid]) -> Self {
+    pub fn by_replica(replica_id: &'a str, ids: &'a [SessionId]) -> Self {
         Self { ids, replica_id }
     }
 
@@ -111,7 +121,7 @@ impl<'a> DeleteQuery<'a> {
             WHERE id = ANY ($1)
             AND replica_id = $2
             "#,
-            self.ids,
+            self.ids as &[SessionId],
             self.replica_id
         )
         .execute(conn)
@@ -167,13 +177,12 @@ pub struct AgentCount {
     pub count: i64,
 }
 
-pub struct AgentCounter {
-    // TODO: Use Vec<ClassroomId> instead
-    classroom_ids: Vec<Uuid>,
+pub struct AgentCounter<'a> {
+    classroom_ids: &'a [ClassroomId],
 }
 
-impl AgentCounter {
-    pub fn new(classroom_ids: Vec<Uuid>) -> Self {
+impl<'a> AgentCounter<'a> {
+    pub fn new(classroom_ids: &'a [ClassroomId]) -> Self {
         Self { classroom_ids }
     }
 
@@ -192,7 +201,7 @@ impl AgentCounter {
                 classroom_id = ANY ($1)
             GROUP BY classroom_id
             "#,
-            &self.classroom_ids
+            self.classroom_ids as &[ClassroomId]
         )
         .fetch_all(conn)
         .await?;
@@ -211,10 +220,6 @@ pub struct FindOutdatedQuery<'a> {
     outdated: bool,
 }
 
-pub struct FindResult {
-    pub session_key: SessionKey,
-}
-
 impl<'a> FindOutdatedQuery<'a> {
     pub fn by_replica(replica_id: &'a str) -> Self {
         Self {
@@ -228,12 +233,13 @@ impl<'a> FindOutdatedQuery<'a> {
         self
     }
 
-    pub async fn execute(&self, conn: &mut PgConnection) -> sqlx::Result<Vec<FindResult>> {
+    pub async fn execute(&self, conn: &mut PgConnection) -> sqlx::Result<Vec<SessionKey>> {
         sqlx::query_as!(
-            FindResult,
+            SessionKey,
             r#"
             SELECT
-                (agent_id, classroom_id) AS "session_key!: SessionKey"
+                agent_id AS "agent_id: AgentId",
+                classroom_id AS "classroom_id: ClassroomId"
             FROM agent_session
             WHERE
                 replica_id = $1
@@ -285,12 +291,12 @@ impl<'a> UpdateOutdatedQuery<'a> {
     }
 }
 
-pub struct GetQuery<'a> {
-    id: &'a Uuid,
+pub struct GetQuery {
+    id: SessionId,
 }
 
-impl<'a> GetQuery<'a> {
-    pub fn new(id: &'a Uuid) -> Self {
+impl GetQuery {
+    pub fn new(id: SessionId) -> Self {
         Self { id }
     }
 
@@ -299,7 +305,7 @@ impl<'a> GetQuery<'a> {
             AgentSession,
             r#"
             SELECT
-                id,
+                id AS "id: SessionId",
                 agent_id AS "agent_id: AgentId",
                 classroom_id AS "classroom_id: ClassroomId",
                 replica_id,
@@ -309,7 +315,7 @@ impl<'a> GetQuery<'a> {
                 id = $1
             LIMIT 1
             "#,
-            self.id,
+            &self.id as &SessionId
         )
         .fetch_one(conn)
         .await

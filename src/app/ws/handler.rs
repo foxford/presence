@@ -1,3 +1,4 @@
+use crate::session::SessionId;
 use crate::{
     app::{
         history_manager,
@@ -28,7 +29,6 @@ use svc_authn::{
 };
 use tokio::time::{interval, timeout, MissedTickBehavior};
 use tracing::{error, info};
-use uuid::Uuid;
 
 pub async fn handler<S: State>(
     ws: WebSocketUpgrade,
@@ -49,14 +49,14 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
     .await;
 
     // Authentication
-    let (session_id, agent_id, classroom_id) = match authn_timeout {
+    let (session_id, session_key) = match authn_timeout {
         Ok(Some(result)) => match result {
             Ok(msg) => match handle_authn_message(msg, authn, state.clone()).await {
-                Ok((m, (session_id, agent_id, classroom_id))) => {
-                    info!("Successful authentication: {}", &session_id);
+                Ok((m, (session_id, session_key))) => {
+                    info!("Successful authentication, session_key: {}", &session_key);
                     let _ = sender.send(Message::Text(m)).await;
 
-                    (session_id, agent_id, classroom_id)
+                    (session_id, session_key)
                 }
                 Err(e) => {
                     info!("Connection is closed (unsuccessful request)");
@@ -79,11 +79,10 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
     };
 
     // To close old connections from the same agents
-    let session_key = SessionKey::new(agent_id, classroom_id);
     let mut close_rx = match state.register_session(session_key.clone(), session_id) {
         Ok(rx) => rx,
         Err(e) => {
-            error!(error = %e, "Failed to register session_id: {}", &session_id);
+            error!(error = %e, "Failed to register session_key: {}", session_key);
             return;
         }
     };
@@ -156,7 +155,7 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
                     return;
                 }
 
-                if let Err(err) = history_manager::move_single_session(state, &session_id).await {
+                if let Err(err) = history_manager::move_single_session(state, session_id).await {
                     error!(error = %err, "Failed to move session to history");
                 }
 
@@ -165,11 +164,11 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
         }
     }
 
-    if let Err(e) = state.terminate_session(session_key, false).await {
-        error!(error = %e, "Failed to terminate session: {}", session_id);
+    if let Err(e) = state.terminate_session(session_key.clone(), false).await {
+        error!(error = %e, "Failed to terminate session_key: {}", session_key);
     }
 
-    if let Err(err) = history_manager::move_single_session(state, &session_id).await {
+    if let Err(err) = history_manager::move_single_session(state, session_id).await {
         error!(error = %err, "Failed to move session to history");
     }
 }
@@ -178,7 +177,7 @@ async fn handle_authn_message<S: State>(
     message: Message,
     authn: Arc<ConfigMap>,
     state: S,
-) -> Result<(String, (Uuid, AgentId, ClassroomId)), ConnectError> {
+) -> Result<(String, (SessionId, SessionKey)), ConnectError> {
     let msg = match message {
         Message::Text(msg) => msg,
         _ => return Err(ConnectError::UnsupportedRequest),
@@ -203,7 +202,7 @@ async fn handle_authn_message<S: State>(
 
             Ok((
                 make_response(Response::ConnectSuccess),
-                (session_id, agent_id, classroom_id),
+                (session_id, SessionKey::new(agent_id, classroom_id)),
             ))
         }
         Err(err) => {
@@ -217,7 +216,7 @@ async fn create_agent_session<S: State>(
     state: S,
     classroom_id: ClassroomId,
     agent_id: &AgentId,
-) -> Result<Uuid, ConnectError> {
+) -> Result<SessionId, ConnectError> {
     let mut conn = match state.get_conn().await {
         Ok(conn) => conn,
         Err(err) => {
@@ -229,7 +228,7 @@ async fn create_agent_session<S: State>(
     // Attempt to close old session on the same replica
     let session_key = SessionKey::new(agent_id.clone(), classroom_id);
     // If the session is found, don't create a new session and return the previous id
-    match state.terminate_session(session_key.clone(), false).await {
+    match state.terminate_session(session_key.clone(), true).await {
         Ok(Session::Found(session_id)) => {
             return Ok(session_id);
         }
@@ -326,6 +325,8 @@ mod tests {
     mod handle_authn_message {
         use super::*;
 
+        const REPLICA_ID: &str = "presence_1";
+
         #[tokio::test]
         async fn unsupported_request() {
             let test_container = TestContainer::new();
@@ -333,7 +334,7 @@ mod tests {
             let db_pool = TestDb::new(&postgres.connection_string).await;
             let msg = Message::Binary("".into());
             let authn = Arc::new(authn::new());
-            let state = TestState::new(db_pool, TestAuthz::new());
+            let state = TestState::new(db_pool, TestAuthz::new(), REPLICA_ID);
 
             let result = handle_authn_message(msg, authn, state)
                 .await
@@ -349,7 +350,7 @@ mod tests {
             let db_pool = TestDb::new(&postgres.connection_string).await;
             let msg = Message::Text("".into());
             let authn = Arc::new(authn::new());
-            let state = TestState::new(db_pool, TestAuthz::new());
+            let state = TestState::new(db_pool, TestAuthz::new(), REPLICA_ID);
 
             let result = handle_authn_message(msg, authn, state)
                 .await
@@ -363,7 +364,7 @@ mod tests {
             let test_container = TestContainer::new();
             let postgres = test_container.run_postgres();
             let db_pool = TestDb::new(&postgres.connection_string).await;
-            let classroom_id = ClassroomId { 0: Uuid::new_v4() };
+            let classroom_id: ClassroomId = Uuid::new_v4().into();
 
             let cmd = json!({
                 "type": "connect_request",
@@ -375,7 +376,7 @@ mod tests {
 
             let msg = Message::Text(cmd.to_string());
             let authn = Arc::new(authn::new());
-            let state = TestState::new(db_pool, TestAuthz::new());
+            let state = TestState::new(db_pool, TestAuthz::new(), REPLICA_ID);
 
             let result = handle_authn_message(msg, authn, state)
                 .await
@@ -389,7 +390,7 @@ mod tests {
             let test_container = TestContainer::new();
             let postgres = test_container.run_postgres();
             let db_pool = TestDb::new(&postgres.connection_string).await;
-            let classroom_id = ClassroomId { 0: Uuid::new_v4() };
+            let classroom_id: ClassroomId = Uuid::new_v4().into();
             let agent = TestAgent::new("http", "user123", USR_AUDIENCE);
             let token = agent.token();
 
@@ -403,7 +404,7 @@ mod tests {
 
             let msg = Message::Text(cmd.to_string());
             let authn = Arc::new(authn::new());
-            let state = TestState::new(db_pool, TestAuthz::new());
+            let state = TestState::new(db_pool, TestAuthz::new(), REPLICA_ID);
 
             let result = handle_authn_message(msg, authn, state)
                 .await
@@ -417,7 +418,7 @@ mod tests {
             let test_container = TestContainer::new();
             let postgres = test_container.run_postgres();
             let db_pool = TestDb::new(&postgres.connection_string).await;
-            let classroom_id = ClassroomId { 0: Uuid::new_v4() };
+            let classroom_id: ClassroomId = Uuid::new_v4().into();
             let agent = TestAgent::new("http", "user123", USR_AUDIENCE);
             let token = agent.token();
 
@@ -438,9 +439,9 @@ mod tests {
                 vec!["classrooms", &classroom_id.to_string()],
                 "connect",
             );
-            let state = TestState::new(db_pool, authz);
+            let state = TestState::new(db_pool, authz, REPLICA_ID);
 
-            let (resp, (_, agent_id, classroom_id)) = handle_authn_message(msg, authn, state)
+            let (resp, (_, session_key)) = handle_authn_message(msg, authn, state)
                 .await
                 .expect("Failed to handle authentication message");
 
@@ -448,8 +449,10 @@ mod tests {
                 .expect("Failed to serialize response");
 
             assert_eq!(resp, success);
-            assert_eq!(agent_id, agent.agent_id().to_owned());
-            assert_eq!(classroom_id, classroom_id);
+            assert_eq!(
+                session_key,
+                SessionKey::new(agent.agent_id().to_owned(), classroom_id)
+            );
         }
     }
 }

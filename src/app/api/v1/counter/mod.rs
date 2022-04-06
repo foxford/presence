@@ -4,7 +4,8 @@ use crate::{
         error::{ErrorExt, ErrorKind},
     },
     authz::AuthzObject,
-    db::agent_session::AgentCounter,
+    classroom::ClassroomId,
+    db::agent_session,
     state::State,
 };
 use anyhow::Context;
@@ -14,11 +15,10 @@ use serde_derive::Deserialize;
 use svc_agent::AgentId;
 use svc_authn::Authenticable;
 use svc_utils::extractors::AuthnExtractor;
-use uuid::Uuid;
 
 #[derive(Deserialize)]
 pub struct CounterPayload {
-    classroom_ids: Vec<Uuid>,
+    classroom_ids: Vec<ClassroomId>,
 }
 
 pub async fn count_agents<S: State>(
@@ -52,7 +52,7 @@ async fn do_count_agents<S: State>(
         .await
         .error(ErrorKind::DbConnAcquisitionFailed)?;
 
-    let agents_count = AgentCounter::new(payload.classroom_ids)
+    let agents_count = agent_session::AgentCounter::new(&payload.classroom_ids)
         .execute(&mut conn)
         .await
         .context("Failed to count agents")
@@ -78,17 +78,20 @@ mod tests {
     use serde_json::Value;
     use sqlx::types::time::OffsetDateTime;
     use std::collections::HashMap;
+    use uuid::Uuid;
+
+    const REPLICA_ID: &str = "presence_1";
 
     #[tokio::test]
     async fn count_agents_unauthorized() {
         let test_container = TestContainer::new();
         let postgres = test_container.run_postgres();
         let db_pool = TestDb::new(&postgres.connection_string).await;
-        let classroom_id = ClassroomId { 0: Uuid::new_v4() };
-        let state = TestState::new(db_pool, TestAuthz::new());
+        let classroom_id: ClassroomId = Uuid::new_v4().into();
+        let state = TestState::new(db_pool, TestAuthz::new(), REPLICA_ID);
         let agent = TestAgent::new("web", "user1", USR_AUDIENCE);
         let payload = CounterPayload {
-            classroom_ids: vec![classroom_id.0],
+            classroom_ids: vec![classroom_id],
         };
 
         let resp = do_count_agents(state, agent.agent_id().to_owned(), payload)
@@ -110,7 +113,7 @@ mod tests {
         let test_container = TestContainer::new();
         let postgres = test_container.run_postgres();
         let db_pool = TestDb::new(&postgres.connection_string).await;
-        let classroom_id = ClassroomId { 0: Uuid::new_v4() };
+        let classroom_id: ClassroomId = Uuid::new_v4().into();
         let agent_1 = TestAgent::new("web", "user1", USR_AUDIENCE);
         let agent_2 = TestAgent::new("web", "user2", USR_AUDIENCE);
 
@@ -145,9 +148,9 @@ mod tests {
         authz.set_audience(SVC_AUDIENCE);
         authz.allow(agent.account_id(), vec!["classrooms"], "read");
 
-        let state = TestState::new(db_pool, authz);
+        let state = TestState::new(db_pool, authz, REPLICA_ID);
         let payload = CounterPayload {
-            classroom_ids: vec![classroom_id.0],
+            classroom_ids: vec![classroom_id],
         };
 
         let resp = do_count_agents(state, agent.agent_id().to_owned(), payload)

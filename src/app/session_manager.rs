@@ -1,4 +1,6 @@
+use crate::session::SessionId;
 use crate::{db, session::SessionKey, state::State};
+use anyhow::{Context, Result};
 use std::collections::HashMap;
 use tokio::{
     sync::{mpsc, oneshot, watch},
@@ -6,18 +8,17 @@ use tokio::{
     time::{interval, MissedTickBehavior},
 };
 use tracing::error;
-use uuid::Uuid;
 
 #[derive(Debug)]
 pub enum Session {
     NotFound,
-    Found(Uuid),
+    Found(SessionId),
     Skip,
 }
 
 #[derive(Debug)]
 pub enum Command {
-    Register(SessionKey, (Uuid, oneshot::Sender<()>)),
+    Register(SessionKey, (SessionId, oneshot::Sender<()>)),
     Terminate(SessionKey, Option<oneshot::Sender<Session>>),
 }
 
@@ -32,7 +33,7 @@ pub fn run<S: State>(
         let mut check_interval = interval(state.config().websocket.check_old_connection_interval);
         check_interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
 
-        let mut sessions = HashMap::<SessionKey, (Uuid, oneshot::Sender<()>)>::new();
+        let mut sessions = HashMap::<SessionKey, (SessionId, oneshot::Sender<()>)>::new();
 
         loop {
             tokio::select! {
@@ -54,31 +55,19 @@ pub fn run<S: State>(
                     }
                 }
                 _ = check_interval.tick() => {
-                    let mut conn = match state.get_conn().await {
-                        Ok(conn) => conn,
-                        Err(e) => {
-                            error!(error = %e, "Failed to get db connection");
-                            continue;
-                        }
-                    };
-
-                    match db::agent_session::FindOutdatedQuery::by_replica(state.replica_id().as_str()).outdated(true)
-                        .execute(&mut conn)
-                        .await
-                    {
-                        Ok(session_ids) => session_ids.iter().for_each(|s| {
-                            // After removing `oneshot::Sender<()>` from HashMap,
-                            // oneshot::Receiver<()> will get `RecvError` and close old connection
-                            if let Some((_, sender)) = sessions.remove(&s.session_key) {
+                    match get_outdated_sessions(state.clone()).await {
+                        Ok(session_keys) => session_keys.iter().for_each(|key| {
+                            // Close the old connection by sending a message
+                            if let Some((_, sender)) = sessions.remove(key) {
                                 if sender.send(()).is_err() {
-                                    error!("Failed to send a message to session: {}", s.session_key);
+                                    error!("Failed to send a message to session: {}", key);
                                 }
                             }
                         }),
                         Err(e) => {
-                            error!(error = %e, "Failed to get old agent sessions");
+                            error!(error = %e);
                         }
-                    }
+                    };
                 }
                 // Graceful shutdown
                 _ = shutdown_rx.changed() => {
@@ -87,4 +76,56 @@ pub fn run<S: State>(
             }
         }
     })
+}
+
+async fn get_outdated_sessions<S: State>(state: S) -> Result<Vec<SessionKey>> {
+    let mut conn = state.get_conn().await.context("failed to get connection")?;
+
+    db::agent_session::FindOutdatedQuery::by_replica(state.replica_id().as_str())
+        .outdated(true)
+        .execute(&mut conn)
+        .await
+        .context("failed to get outdated sessions")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{classroom::ClassroomId, db::agent_session, test_helpers::prelude::*};
+    use sqlx::types::time::OffsetDateTime;
+    use uuid::Uuid;
+
+    #[tokio::test]
+    async fn get_outdated_sessions_test() {
+        let test_container = TestContainer::new();
+        let postgres = test_container.run_postgres();
+        let db_pool = TestDb::new(&postgres.connection_string).await;
+        let classroom_id: ClassroomId = Uuid::new_v4().into();
+        let agent = TestAgent::new("http", "user123", USR_AUDIENCE);
+
+        let _ = {
+            let mut conn = db_pool.get_conn().await;
+
+            let session = agent_session::InsertQuery::new(
+                agent.agent_id(),
+                classroom_id,
+                "presence_1".to_string(),
+                OffsetDateTime::now_utc(),
+            )
+            .outdated(true)
+            .execute(&mut conn)
+            .await
+            .expect("failed to insert an outdated agent session");
+
+            session
+        };
+
+        let state = TestState::new(db_pool, TestAuthz::new(), "presence_1");
+        let result = get_outdated_sessions(state)
+            .await
+            .expect("failed to get outdated sessions");
+
+        let session_key = SessionKey::new(agent.agent_id().to_owned(), classroom_id);
+        assert_eq!(result, vec![session_key]);
+    }
 }

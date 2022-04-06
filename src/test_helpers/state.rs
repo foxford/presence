@@ -1,8 +1,8 @@
-use crate::session::SessionKey;
 use crate::{
-    app::session_manager::{Command, Session},
+    app::session_manager::Session,
     config::{Config, WebSocketConfig},
-    state::{CommandSend, State},
+    session::{SessionId, SessionKey},
+    state::State,
     test_helpers::prelude::*,
 };
 use anyhow::Result;
@@ -12,17 +12,17 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use svc_authn::AccountId;
 use svc_authz::ClientMap as Authz;
 use tokio::sync::oneshot;
-use uuid::Uuid;
 
 #[derive(Clone)]
 pub struct TestState {
     config: Config,
     db_pool: TestDb,
     authz: Authz,
+    replica_id: String,
 }
 
 impl TestState {
-    pub fn new(db_pool: TestDb, authz: TestAuthz) -> Self {
+    pub fn new(db_pool: TestDb, authz: TestAuthz, replica_id: impl Into<String>) -> Self {
         Self {
             config: Config {
                 id: AccountId::new("presence", SVC_AUDIENCE),
@@ -40,22 +40,8 @@ impl TestState {
             },
             db_pool,
             authz: authz.into(),
+            replica_id: replica_id.into(),
         }
-    }
-}
-
-pub struct TestSender;
-
-impl CommandSend for TestSender {
-    fn send(&self, cmd: Command) -> Result<()> {
-        match cmd {
-            Command::Terminate(_, Some(s)) => {
-                s.send(Session::NotFound).expect("failed to send message");
-            }
-            _ => {}
-        }
-
-        Ok(())
     }
 }
 
@@ -70,10 +56,10 @@ impl State for TestState {
     }
 
     fn replica_id(&self) -> String {
-        "presence_1".to_string()
+        self.replica_id.clone()
     }
 
-    fn register_session(&self, _: SessionKey, _: Uuid) -> Result<oneshot::Receiver<()>> {
+    fn register_session(&self, _: SessionKey, _: SessionId) -> Result<oneshot::Receiver<()>> {
         let (_, rx) = oneshot::channel::<()>();
         Ok(rx)
     }

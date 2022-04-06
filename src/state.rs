@@ -1,23 +1,14 @@
-use crate::app::session_manager::Session;
-use crate::session::SessionKey;
-use crate::{app::session_manager::Command, config::Config};
+use crate::{
+    app::session_manager::{Command, Session},
+    config::Config,
+    session::{SessionId, SessionKey},
+};
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use sqlx::{pool::PoolConnection, PgPool, Postgres};
 use std::sync::Arc;
 use svc_authz::ClientMap as Authz;
 use tokio::sync::{mpsc::UnboundedSender, oneshot};
-use uuid::Uuid;
-
-pub trait CommandSend {
-    fn send(&self, cmd: Command) -> Result<()>;
-}
-
-impl CommandSend for UnboundedSender<Command> {
-    fn send(&self, cmd: Command) -> Result<()> {
-        self.send(cmd).context("failed to send command")
-    }
-}
 
 #[async_trait]
 pub trait State: Send + Sync + Clone + 'static {
@@ -27,7 +18,7 @@ pub trait State: Send + Sync + Clone + 'static {
     fn register_session(
         &self,
         session_key: SessionKey,
-        session_id: Uuid,
+        session_id: SessionId,
     ) -> Result<oneshot::Receiver<()>>;
     async fn terminate_session(&self, session_key: SessionKey, return_id: bool) -> Result<Session>;
     async fn get_conn(&self) -> Result<PoolConnection<Postgres>>;
@@ -83,7 +74,7 @@ impl State for AppState {
     fn register_session(
         &self,
         session_key: SessionKey,
-        session_id: Uuid,
+        session_id: SessionId,
     ) -> Result<oneshot::Receiver<()>> {
         let (tx, rx) = oneshot::channel::<()>();
         self.inner
