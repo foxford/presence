@@ -29,7 +29,7 @@ pub struct WebSocketConfig {
 
 pub fn load() -> Result<Config, config::ConfigError> {
     config::Config::builder()
-        .add_source(config::File::with_name("presence"))
+        .add_source(config::File::with_name("App"))
         .add_source(config::Environment::with_prefix("APP").separator("__"))
         .build()
         .and_then(|c| c.try_deserialize::<Config>())

@@ -5,7 +5,7 @@ metadata:
     {{- include "presence.labels" . | nindent 4 }}
   name: {{ include "presence.name" . }}-config
 data:
-  presence.toml: |
+  App.toml: |
     {{- $id := list (include "presence.name" . ) (include "presence.shortNamespace" .) .Values.svc.audience | compact | join "." }}
     id = {{ $id | quote }}
     listener_address = "0.0.0.0:{{ get .Values.service.ports "http" }}"

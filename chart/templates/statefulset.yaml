@@ -75,8 +75,8 @@ spec:
                   fieldPath: metadata.name
           volumeMounts:
             - name: config
-              mountPath: /app/presence.toml
-              subPath: presence.toml
+              mountPath: /app/App.toml
+              subPath: App.toml
             {{- with .Values.svc }}
             {{- $audience := .audience }}
             {{- range .credentials }}
