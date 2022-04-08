@@ -6,7 +6,7 @@ RUN apt update && apt install -y --no-install-recommends \
   libcurl4-openssl-dev \
   libpq-dev
 
-RUN cargo install sqlx-cli --version 0.5.11 --no-default-features --features postgres
+RUN cargo install sqlx-cli --no-default-features --features native-tls,postgres
 WORKDIR /app
 COPY ./migrations /app/migrations
 COPY Cargo.toml /app/Cargo.toml
