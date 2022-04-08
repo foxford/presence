@@ -1,0 +1,66 @@
+# Default values for presence.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+replicaCount: 2
+
+container:
+  image:
+    repository: foxford/presence
+    tag: ""
+
+  volumes:
+    - name: config
+      configMap:
+        name: presence-config
+    - name: svc
+      secret:
+        secretName: some-secret
+
+  volumeMounts:
+    - name: config
+      mountPath: /app/presence.toml
+      subPath: presence.toml
+    - mountPath: /path/to/mount
+      name: svc
+      subPath: svc.private_key
+
+  resources:
+    limits:
+      cpu: 0.5
+      memory: 50Mi
+    requests:
+      cpu: 0.5
+      memory: 50Mi
+
+audiences:
+  tenantless:
+    authn:
+      key: path/to/public_key.p8.der
+    authz:
+      type: none
+
+config:
+  svc_audience: ""
+  websoket:
+    ping_interval: 30s
+    pong_expiration_interval: 5s
+    authentication_timeout: 5s
+    check_old_connection_interval: 5s
+
+env:
+  RUST_LOG: warn,presence=info,svc_utils=info,svc_utils::metrics=warn
+  DATABASE_POOL_SIZE: 15
+  DATABASE_POOL_IDLE_SIZE: 15
+  DATABASE_POOL_TIMEOUT: 5
+  DATABASE_POOL_MAX_LIFETIME: 43200
+
+service:
+  type: ClusterIP
+  ports:
+    http: 8080
+
+ingress:
+  host: foo.bar.example
+  tls:
+    secretName: tls-certificates

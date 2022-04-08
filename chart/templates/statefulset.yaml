@@ -1,0 +1,117 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "presence.name" . }}
+  labels:
+    {{- include "presence.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount | default 2 }}
+  serviceName: {{ include "presence.name" . }}-headless
+  selector:
+    matchLabels:
+      {{- include "presence.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+      {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "presence.selectorLabels" . | nindent 8 }}
+    spec:
+      imagePullSecrets:
+        - name: regcred
+      initContainers:
+        - name: init-{{ .Chart.Name }}-migration
+          image: "{{ .Values.container.image.migration_repository | default (printf "%v-migration" .Values.container.image.repository) }}:{{ .Values.container.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: postgresql-{{ include "presence.name" . }}-{{ .Values.app.name }}-credentials
+                  key: database_url
+          resources:
+            {{- toYaml .Values.container.resources | nindent 12 }}
+      containers:
+        - name: {{ .Chart.Name }}
+          image: "{{ .Values.container.image.repository }}:{{ .Values.container.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: RUST_LOG
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "presence.name" . }}-environment
+                  key: RUST_LOG
+            - name: DATABASE_POOL_SIZE
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "presence.name" . }}-environment
+                  key: DATABASE_POOL_SIZE
+            - name: DATABASE_POOL_IDLE_SIZE
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "presence.name" . }}-environment
+                  key: DATABASE_POOL_IDLE_SIZE
+            - name: DATABASE_POOL_TIMEOUT
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "presence.name" . }}-environment
+                  key: DATABASE_POOL_TIMEOUT
+            - name: DATABASE_POOL_MAX_LIFETIME
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "presence.name" . }}-environment
+                  key: DATABASE_POOL_MAX_LIFETIME
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: postgresql-{{ include "presence.name" . }}-{{ .Values.app.name }}-credentials
+                  key: database_url
+            - name: APP_AGENT_LABEL
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          volumeMounts:
+            - name: config
+              mountPath: /app/presence.toml
+              subPath: presence.toml
+            {{- with .Values.svc }}
+            {{- $audience := .audience }}
+            {{- range .credentials }}
+            - name: {{ include "presence.volumeMountName" (list $audience .secret) }}
+              mountPath: {{ .mountPath }}
+              subPath: {{ .subPath }}
+            {{- end }}
+            {{- end }}
+            {{- range .Values.audiences }}
+            {{- $audience := .audience }}
+            {{- range .credentials }}
+            - name: {{ include "presence.volumeMountName" (list $audience .secret) }}
+              mountPath: {{ .mountPath }}
+              subPath: {{ .subPath }}
+            {{- end }}
+            {{- end }}
+          resources:
+            {{- toYaml .Values.container.resources | nindent 12 }}
+      volumes:
+        - name: config
+          configMap:
+            name: presence-config
+        {{- with .Values.svc }}
+        {{- $audience := .audience }}
+        {{- range .credentials }}
+        - name: {{ include "presence.volumeMountName" (list $audience .secret) }}
+          secret:
+            secretName: {{ .secret }}
+        {{- end }}
+        {{- end }}
+        {{- range .Values.audiences }}
+        {{- $audience := .audience }}
+        {{- range .credentials }}
+        - name: {{ include "presence.volumeMountName" (list $audience .secret) }}
+          secret:
+            secretName: {{ .secret }}
+        {{- end }}
+        {{- end }}
