@@ -6,9 +6,9 @@ edition = "2021"
 [dependencies]
 anyhow = "1.0"
 async-trait = "0.1"
-axum = { version = "0.4", features = ["ws"] }
+axum = { version = "0.5", features = ["ws"] }
 config = { version = "0.13", default-features = false, features = ["toml"] }
-dotenv = { version = "0.15.0", optional = true }
+dotenv = { version = "0.15", optional = true }
 futures-util = "0.3"
 http = "0.2"
 humantime-serde = "1.0"
@@ -22,7 +22,7 @@ svc-agent = { version = "0.19", features = ["sqlx"] }
 svc-authn = { version = "0.7", features = ["jose", "sqlx"] }
 svc-authz = "0.11"
 svc-error = { version = "0.4", features = ["sentry-extension", "sqlx", "serialize-status-code"] }
-svc-utils = { version = "0.2", features = ["log-middleware", "authn-extractor", "metrics-middleware", "cors-middleware"] }
+svc-utils = { version = "0.3", features = ["log-middleware", "authn-extractor", "metrics-middleware", "cors-middleware"] }
 thiserror = "1.0"
 tokio = { version = "1.16", features = ["full"] }
 tracing = "0.1"

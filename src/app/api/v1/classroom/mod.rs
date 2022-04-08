@@ -5,7 +5,7 @@ use crate::{
     },
     authz::AuthzObject,
     classroom::ClassroomId,
-    db::agent_session::AgentList,
+    db::agent_session,
     state::State,
 };
 use anyhow::Context;
@@ -61,7 +61,7 @@ async fn do_list_agents<S: State>(
         .await
         .error(ErrorKind::DbConnAcquisitionFailed)?;
 
-    let agents = AgentList::new(
+    let agents = agent_session::AgentList::new(
         classroom_id,
         payload.offset.unwrap_or(0),
         std::cmp::min(payload.limit.unwrap_or(MAX_LIMIT), MAX_LIMIT),
@@ -88,7 +88,7 @@ mod tests {
     use super::*;
     use crate::{
         classroom::ClassroomId,
-        db::agent_session::{self, Agent, SessionKind},
+        db::agent_session::{self, Agent},
         test_helpers::prelude::*,
     };
     use axum::{body::HttpBody, response::IntoResponse};
@@ -96,13 +96,15 @@ mod tests {
     use sqlx::types::time::OffsetDateTime;
     use uuid::Uuid;
 
+    const REPLICA_ID: &str = "presence_1";
+
     #[tokio::test]
     async fn list_agents_unauthorized() {
         let test_container = TestContainer::new();
         let postgres = test_container.run_postgres();
         let db_pool = TestDb::new(&postgres.connection_string).await;
-        let state = TestState::new(db_pool, TestAuthz::new());
-        let classroom_id = ClassroomId { 0: Uuid::new_v4() };
+        let state = TestState::new(db_pool, TestAuthz::new(), REPLICA_ID);
+        let classroom_id: ClassroomId = Uuid::new_v4().into();
         let agent = TestAgent::new("web", "user1", USR_AUDIENCE);
 
         let resp = do_list_agents(
@@ -129,19 +131,17 @@ mod tests {
         let test_container = TestContainer::new();
         let postgres = test_container.run_postgres();
         let db_pool = TestDb::new(&postgres.connection_string).await;
-        let classroom_id = ClassroomId { 0: Uuid::new_v4() };
+        let classroom_id: ClassroomId = Uuid::new_v4().into();
         let agent = TestAgent::new("web", "user1", USR_AUDIENCE);
 
         let _ = {
             let mut conn = db_pool.get_conn().await;
 
             agent_session::InsertQuery::new(
-                None,
-                agent.agent_id().to_owned(),
+                agent.agent_id(),
                 classroom_id,
                 "replica".to_string(),
                 OffsetDateTime::now_utc(),
-                SessionKind::Active,
             )
             .execute(&mut conn)
             .await
@@ -155,7 +155,7 @@ mod tests {
             "read",
         );
 
-        let state = TestState::new(db_pool, authz);
+        let state = TestState::new(db_pool, authz, REPLICA_ID);
 
         let resp = do_list_agents(
             state,

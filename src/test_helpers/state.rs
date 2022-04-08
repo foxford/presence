@@ -1,6 +1,7 @@
 use crate::{
-    app::Command,
+    app::session_manager::Session,
     config::{Config, WebSocketConfig},
+    session::{SessionId, SessionKey},
     state::State,
     test_helpers::prelude::*,
 };
@@ -10,17 +11,18 @@ use sqlx::{pool::PoolConnection, Postgres};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use svc_authn::AccountId;
 use svc_authz::ClientMap as Authz;
-use tokio::sync::mpsc::UnboundedSender;
+use tokio::sync::oneshot;
 
 #[derive(Clone)]
 pub struct TestState {
     config: Config,
     db_pool: TestDb,
     authz: Authz,
+    replica_id: String,
 }
 
 impl TestState {
-    pub fn new(db_pool: TestDb, authz: TestAuthz) -> Self {
+    pub fn new(db_pool: TestDb, authz: TestAuthz, replica_id: impl Into<String>) -> Self {
         Self {
             config: Config {
                 id: AccountId::new("presence", SVC_AUDIENCE),
@@ -38,6 +40,7 @@ impl TestState {
             },
             db_pool,
             authz: authz.into(),
+            replica_id: replica_id.into(),
         }
     }
 }
@@ -53,11 +56,16 @@ impl State for TestState {
     }
 
     fn replica_id(&self) -> String {
-        "presence_1".to_string()
+        self.replica_id.clone()
     }
 
-    fn cmd_sender(&self) -> UnboundedSender<Command> {
-        unreachable!();
+    fn register_session(&self, _: SessionKey, _: SessionId) -> Result<oneshot::Receiver<()>> {
+        let (_, rx) = oneshot::channel::<()>();
+        Ok(rx)
+    }
+
+    async fn terminate_session(&self, _: SessionKey, _: bool) -> Result<Session> {
+        Ok(Session::NotFound)
     }
 
     async fn get_conn(&self) -> Result<PoolConnection<Postgres>> {

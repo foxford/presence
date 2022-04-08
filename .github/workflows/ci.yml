@@ -1,7 +1,7 @@
 name: CI
 on:
   push:
-    branches: [ master ]
+    branches: [master]
   pull_request:
 
 env:
@@ -12,18 +12,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      - name: Install latest stable
-        uses: actions-rs/toolchain@v1
+      - uses: actions-rs/toolchain@v1
         with:
+          profile: minimal
           toolchain: stable
-          override: true
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v1
-      - name: clippy
-        run: cargo clippy -- -D warnings
-      - name: fmt
-        run: cargo fmt -- --check
-      - name: Run tests
-        run: cargo test --verbose
+      - run: cargo check
+      - run: cargo fmt --all --check
+      - run: cargo clippy --all-features -- -D warnings
+      - run: cargo build --release --all-features
+      - run: cargo test --all-features --verbose
         env:
           RUST_BACKTRACE: 1
