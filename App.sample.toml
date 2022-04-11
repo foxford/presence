@@ -1,5 +1,6 @@
 id = "presence.dev.svc.example.org"
 listener_address = "0.0.0.0:3000"
+metrics_listener_address = "0.0.0.0:3001"
 svc_audience = "svc.example.org"
 
 [websocket]

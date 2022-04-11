@@ -30,7 +30,7 @@ spec:
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef:
-                  name: postgresql-{{ include "presence.name" . }}-{{ .Values.app.name }}-credentials
+                  name: postgresql-{{ include "presence.name" . }}-credentials
                   key: database_url
           resources:
             {{- toYaml .Values.container.resources | nindent 12 }}
@@ -44,6 +44,36 @@ spec:
                 configMapKeyRef:
                   name: {{ include "presence.name" . }}-environment
                   key: RUST_LOG
+            - name: "CACHE_ENABLED"
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "presence.name" . }}-environment
+                  key: CACHE_ENABLED
+            - name: "CACHE_POOL_SIZE"
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "presence.name" . }}-environment
+                  key: CACHE_POOL_SIZE
+            - name: "CACHE_POOL_IDLE_SIZE"
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "presence.name" . }}-environment
+                  key: CACHE_POOL_IDLE_SIZE
+            - name: "CACHE_POOL_TIMEOUT"
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "presence.name" . }}-environment
+                  key: CACHE_POOL_TIMEOUT
+            - name: "CACHE_EXPIRATION_TIME"
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "presence.name" . }}-environment
+                  key: CACHE_EXPIRATION_TIME
+            - name: "CACHE_URL"
+              valueFrom:
+                secretKeyRef:
+                  name: redis-{{ include "presence.name" . }}-credentials
+                  key: CACHE_URL
             - name: DATABASE_POOL_SIZE
               valueFrom:
                 configMapKeyRef:
@@ -67,7 +97,7 @@ spec:
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef:
-                  name: postgresql-{{ include "presence.name" . }}-{{ .Values.app.name }}-credentials
+                  name: postgresql-{{ include "presence.name" . }}-credentials
                   key: database_url
             - name: APP_AGENT_LABEL
               valueFrom:
@@ -79,18 +109,22 @@ spec:
               subPath: App.toml
             {{- with .Values.svc }}
             {{- $audience := .audience }}
-            {{- range .credentials }}
-            - name: {{ include "presence.volumeMountName" (list $audience .secret) }}
+            {{- range $secret, $mounts := .credentials }}
+            {{- range $mounts }}
+            - name: {{ include "presence.volumeMountName" (list $audience $secret) }}
               mountPath: {{ .mountPath }}
               subPath: {{ .subPath }}
+            {{- end }}
             {{- end }}
             {{- end }}
             {{- range .Values.audiences }}
             {{- $audience := .audience }}
-            {{- range .credentials }}
-            - name: {{ include "presence.volumeMountName" (list $audience .secret) }}
+            {{- range $secret, $mounts := .credentials }}
+            {{- range $mounts }}
+            - name: {{ include "presence.volumeMountName" (list $audience $secret) }}
               mountPath: {{ .mountPath }}
               subPath: {{ .subPath }}
+            {{- end }}
             {{- end }}
             {{- end }}
           resources:
@@ -101,17 +135,17 @@ spec:
             name: presence-config
         {{- with .Values.svc }}
         {{- $audience := .audience }}
-        {{- range .credentials }}
-        - name: {{ include "presence.volumeMountName" (list $audience .secret) }}
+        {{- range $secret, $mounts := .credentials }}
+        - name: {{ include "presence.volumeMountName" (list $audience $secret) }}
           secret:
-            secretName: {{ .secret }}
+            secretName: {{ $secret }}
         {{- end }}
         {{- end }}
         {{- range .Values.audiences }}
         {{- $audience := .audience }}
-        {{- range .credentials }}
-        - name: {{ include "presence.volumeMountName" (list $audience .secret) }}
+        {{- range $secret, $mounts := .credentials }}
+        - name: {{ include "presence.volumeMountName" (list $audience $secret) }}
           secret:
-            secretName: {{ .secret }}
+            secretName: {{ $secret }}
         {{- end }}
         {{- end }}

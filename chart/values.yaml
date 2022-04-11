@@ -3,7 +3,7 @@ replicaCount: 2
 container:
   image:
     repository: foxford/presence
-    tag: "3880ee4-dirty"
+    tag: ""
 
   resources:
     limits:
@@ -15,14 +15,13 @@ container:
 
 svc:
   audience: svc.services
-  credentials: []
-#  credentials:
-#    - secret: svc-secret
-#      subPath: private-key
-#      mountPath: /path/to/svc/private/key
-#    - secret: svc-secret
-#      subPath: public-key
-#      mountPath: /path/to/svc/public/key
+  credentials:
+    - secret: svc-secret
+      subPath: private-key
+      mountPath: /path/to/svc/private/key
+    - secret: svc-secret
+      subPath: public-key
+      mountPath: /path/to/svc/public/key
   authz:
     type: localwhitelist
     records:
@@ -31,30 +30,23 @@ svc:
         action: "rollback"
   authn:
     key: /path/to/key
-  tq_url: "https://example.org/webinar/tq"
-  storage_url: "https://example.org/webinar/storage"
 
-audiences: []
-#audiences:
-#  - audience: foo.bar
-#    credentials:
-#      - secret: foobar-der-credentials
-#        subPath: foobar-public-key
-#        mountPath: /path/to/foobar/public/key
-#    authn:
-#      key: path/to/public_key.p8.der
-#    authz:
-#      type: http
-#      url: "https://authz.example.org/api/v1/authz"
-
-app:
-  name: classroom
+audiences:
+  - audience: foo.bar
+    credentials:
+      - secret: foobar-der-credentials
+        subPath: foobar-public-key
+        mountPath: /path/to/foobar/public/key
+    authn:
+      key: path/to/public_key.p8.der
+    authz:
+      type: http
+      url: "https://authz.example.org/api/v1/authz"
 
 sentry:
   dsn: "https://dsn.sentry.example.org/"
 
 config:
-  svc_audience: ""
   websoket:
     ping_interval: 30s
     pong_expiration_interval: 5s
@@ -63,6 +55,11 @@ config:
 
 env:
   RUST_LOG: warn,presence=info,svc_utils=info,svc_utils::metrics=warn
+  CACHE_ENABLED: 1
+  CACHE_POOL_SIZE: 50
+  CACHE_POOL_IDLE_SIZE: 5
+  CACHE_POOL_TIMEOUT: 5
+  CACHE_EXPIRATION_TIME: 300
   DATABASE_POOL_SIZE: 15
   DATABASE_POOL_IDLE_SIZE: 15
   DATABASE_POOL_TIMEOUT: 5

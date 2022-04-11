@@ -1,17 +1,15 @@
-# Nats gatekeeper helm chart
+# Presence helm chart
 
-Helm chart for [presence](https://github.com/foxford/presence/)
+Helm chart for [presence](https://github.com/foxford/presence)
 
 ## Prerequisites
-
-`nats-credentials` secret must be present with nats key.
 
 `.der` keys for each audience should exist to authenticate tokens
 (see `.audiences.*.authn.key` and `.container.{volumes,volumeMounts}` in `values.yaml`)
 
 ## Installation
 
-To install gatekeeper cd into this dir and run
+To install presence cd into this dir and run
 ```
 helm install presence . --atomic -n testing01
 ```
