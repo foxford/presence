@@ -188,6 +188,7 @@ async fn handle_authn_message<S: State>(
         Ok(Request::ConnectRequest(ConnectRequest {
             token,
             classroom_id,
+            audience,
         })) => {
             let agent_id = match get_agent_id_from_token(token, authn) {
                 Ok(agent_id) => agent_id,
@@ -197,7 +198,7 @@ async fn handle_authn_message<S: State>(
                 }
             };
 
-            authorize_agent(state.clone(), &agent_id, &classroom_id).await?;
+            authorize_agent(state.clone(), &agent_id, &classroom_id, audience).await?;
             let session_id = create_agent_session(state, classroom_id, &agent_id).await?;
 
             Ok((
@@ -280,18 +281,14 @@ async fn authorize_agent<S: State>(
     state: S,
     agent_id: &AgentId,
     classroom_id: &ClassroomId,
+    audience: String,
 ) -> Result<(), ConnectError> {
     let account_id = agent_id.as_account_id();
     let object = AuthzObject::new(&["classrooms", &classroom_id.to_string()]).into();
 
     if let Err(err) = state
         .authz()
-        .authorize(
-            account_id.audience().to_string(),
-            account_id.clone(),
-            object,
-            "connect".into(),
-        )
+        .authorize(audience, account_id.clone(), object, "connect".into())
         .await
     {
         error!(error = %err, "Failed to authorize action");
@@ -370,7 +367,8 @@ mod tests {
                 "type": "connect_request",
                 "payload": {
                     "classroom_id": classroom_id,
-                    "token": "1234"
+                    "token": "1234",
+                    "audience": "svc.example.org"
                 }
             });
 
@@ -398,7 +396,8 @@ mod tests {
                 "type": "connect_request",
                 "payload": {
                     "classroom_id": classroom_id,
-                    "token": token
+                    "token": token,
+                    "audience": "svc.example.org"
                 }
             });
 
@@ -426,7 +425,8 @@ mod tests {
                 "type": "connect_request",
                 "payload": {
                     "classroom_id": classroom_id,
-                    "token": token
+                    "token": token,
+                    "audience": USR_AUDIENCE
                 }
             });
 

@@ -27,6 +27,10 @@ impl TestState {
             config: Config {
                 id: AccountId::new("presence", SVC_AUDIENCE),
                 listener_address: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8080),
+                metrics_listener_address: SocketAddr::new(
+                    IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
+                    8081,
+                ),
                 sentry: None,
                 authn: Default::default(),
                 websocket: WebSocketConfig {

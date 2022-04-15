@@ -8,6 +8,7 @@ use svc_error::extension::sentry::Config as SentryConfig;
 pub struct Config {
     pub id: AccountId,
     pub listener_address: SocketAddr,
+    pub metrics_listener_address: SocketAddr,
     pub sentry: Option<SentryConfig>,
     pub authn: AuthnConfig,
     pub websocket: WebSocketConfig,
