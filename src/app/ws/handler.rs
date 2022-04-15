@@ -288,7 +288,7 @@ async fn authorize_agent<S: State>(
     if let Err(err) = state
         .authz()
         .authorize(
-            authz_hack::remove_unwanted_paths_from_audience(account_id.audience()),
+            authz_hack::remove_unwanted_parts_from_audience(account_id.audience()),
             account_id.clone(),
             object,
             "connect".into(),

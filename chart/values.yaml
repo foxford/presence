@@ -23,11 +23,8 @@ svc:
       subPath: public-key
       mountPath: /path/to/svc/public/key
   authz:
-    type: localwhitelist
-    records:
-      - subject_account_id: "devops.foo.bar"
-        object: ["scopes"]
-        action: "rollback"
+    type: local
+    trusted: [svc.foo.bar]
   authn:
     key: /path/to/key
 

@@ -10,7 +10,8 @@ data:
     id = {{ $id | quote }}
     listener_address = "0.0.0.0:{{ get .Values.service.ports "http" }}"
     metrics_listener_address = "0.0.0.0:{{ get .Values.service.ports "metrics" }}"
-    svc_audience = {{ .Values.svc.audience | quote }}
+    {{- $svc_audience := list (include "presence.shortNamespace" $) .Values.svc.audience | compact | join "." }}
+    svc_audience = {{ $svc_audience | quote }}
 
     [websocket]
     ping_interval = {{ .Values.config.websoket.ping_interval | quote }}
@@ -18,9 +19,9 @@ data:
     authentication_timeout = {{ .Values.config.websoket.authentication_timeout | quote }}
     check_old_connection_interval = {{ .Values.config.websoket.check_old_connection_interval | quote }}
 
-    #[sentry]
-    #dsn = {{ .Values.sentry.dsn | quote }}
-    #environment = {{ .Release.Namespace | quote }}
+    [sentry]
+    dsn = {{ .Values.sentry.dsn | quote }}
+    environment = {{ .Release.Namespace | quote }}
 
     {{- println "" }}
 
@@ -41,6 +42,13 @@ data:
     {{- with .authz }}
     [authz.{{ $svc_audience | quote }}]
     type = {{ .type | quote }}
+    {{- if eq "local" .type }}
+    trusted = [
+      {{- range $account_label := .trusted }}
+        {{ list $account_label | join "." | quote }},
+      {{- end }}
+    ]
+    {{- end }}
     {{- if eq "localwhitelist" .type }}
     [[authz.{{ $svc_audience | quote }}.records]]
     {{- range $record := .records }}

@@ -50,7 +50,7 @@ async fn do_list_agents<S: State>(
     state
         .authz()
         .authorize(
-            authz_hack::remove_unwanted_paths_from_audience(account_id.audience()),
+            authz_hack::remove_unwanted_parts_from_audience(account_id.audience()),
             account_id.clone(),
             object,
             "read".into(),
