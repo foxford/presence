@@ -17,7 +17,6 @@ pub(crate) enum Request {
 pub(crate) struct ConnectRequest {
     classroom_id: ClassroomId,
     token: String,
-    audience: String,
 }
 
 #[derive(Serialize)]
