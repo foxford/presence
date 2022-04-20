@@ -14,10 +14,10 @@ data:
     svc_audience = {{ $svc_audience | quote }}
 
     [websocket]
-    ping_interval = {{ .Values.config.websoket.ping_interval | quote }}
-    pong_expiration_interval = {{ .Values.config.websoket.pong_expiration_interval | quote }}
-    authentication_timeout = {{ .Values.config.websoket.authentication_timeout | quote }}
-    check_old_connection_interval = {{ .Values.config.websoket.check_old_connection_interval | quote }}
+    ping_interval = {{ .Values.config.websocket.ping_interval | quote }}
+    pong_expiration_interval = {{ .Values.config.websocket.pong_expiration_interval | quote }}
+    authentication_timeout = {{ .Values.config.websocket.authentication_timeout | quote }}
+    check_old_connection_interval = {{ .Values.config.websocket.check_old_connection_interval | quote }}
 
     [sentry]
     dsn = {{ .Values.sentry.dsn | quote }}

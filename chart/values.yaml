@@ -44,7 +44,7 @@ sentry:
   dsn: "https://dsn.sentry.example.org/"
 
 config:
-  websoket:
+  websocket:
     ping_interval: 30s
     pong_expiration_interval: 5s
     authentication_timeout: 5s
