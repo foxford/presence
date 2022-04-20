@@ -4,6 +4,7 @@ use crate::{
         error::{ErrorExt, ErrorKind},
     },
     authz::AuthzObject,
+    authz_hack,
     classroom::ClassroomId,
     db::agent_session,
     state::State,
@@ -49,7 +50,7 @@ async fn do_list_agents<S: State>(
     state
         .authz()
         .authorize(
-            account_id.audience().to_string(),
+            authz_hack::remove_unwanted_parts_from_audience(account_id.audience()),
             account_id.clone(),
             object,
             "read".into(),

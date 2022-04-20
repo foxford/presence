@@ -8,6 +8,7 @@ use svc_error::extension::sentry::Config as SentryConfig;
 pub struct Config {
     pub id: AccountId,
     pub listener_address: SocketAddr,
+    pub metrics_listener_address: SocketAddr,
     pub sentry: Option<SentryConfig>,
     pub authn: AuthnConfig,
     pub websocket: WebSocketConfig,
@@ -29,7 +30,7 @@ pub struct WebSocketConfig {
 
 pub fn load() -> Result<Config, config::ConfigError> {
     config::Config::builder()
-        .add_source(config::File::with_name("presence"))
+        .add_source(config::File::with_name("App"))
         .add_source(config::Environment::with_prefix("APP").separator("__"))
         .build()
         .and_then(|c| c.try_deserialize::<Config>())

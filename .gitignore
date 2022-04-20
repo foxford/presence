@@ -1,4 +1,4 @@
 /target
 .idea
-presence.toml
+App.toml
 /.env

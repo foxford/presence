@@ -25,3 +25,12 @@ jobs:
       - run: cargo test --all-features --verbose
         env:
           RUST_BACKTRACE: 1
+
+  dotenv-linter:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: dotenv-linter/action-dotenv-linter@v2
+        with:
+          reporter: github-pr-review
+          fail_on_error: true

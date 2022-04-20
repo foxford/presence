@@ -1,0 +1,74 @@
+replicaCount: 2
+
+container:
+  image:
+    repository: foxford/presence
+    tag: ""
+
+  resources:
+    limits:
+      cpu: 0.5
+      memory: 500Mi
+    requests:
+      cpu: 0.1
+      memory: 50Mi
+
+svc:
+  audience: svc.services
+  credentials:
+    - secret: svc-secret
+      subPath: private-key
+      mountPath: /path/to/svc/private/key
+    - secret: svc-secret
+      subPath: public-key
+      mountPath: /path/to/svc/public/key
+  authz:
+    type: local
+    trusted: [svc.foo.bar]
+  authn:
+    key: /path/to/key
+
+audiences:
+  - audience: foo.bar
+    credentials:
+      - secret: foobar-der-credentials
+        subPath: foobar-public-key
+        mountPath: /path/to/foobar/public/key
+    authn:
+      key: path/to/public_key.p8.der
+    authz:
+      type: http
+      url: "https://authz.example.org/api/v1/authz"
+
+sentry:
+  dsn: "https://dsn.sentry.example.org/"
+
+config:
+  websocket:
+    ping_interval: 30s
+    pong_expiration_interval: 5s
+    authentication_timeout: 5s
+    check_old_connection_interval: 5s
+
+env:
+  RUST_LOG: warn,presence=info,svc_utils=info,svc_utils::metrics=warn
+  CACHE_ENABLED: 1
+  CACHE_POOL_SIZE: 50
+  CACHE_POOL_IDLE_SIZE: 5
+  CACHE_POOL_TIMEOUT: 5
+  CACHE_EXPIRATION_TIME: 300
+  DATABASE_POOL_SIZE: 15
+  DATABASE_POOL_IDLE_SIZE: 15
+  DATABASE_POOL_TIMEOUT: 5
+  DATABASE_POOL_MAX_LIFETIME: 43200
+
+service:
+  type: ClusterIP
+  ports:
+    http: 8080
+    metrics: 8081
+
+ingress:
+  host: foo.bar.example
+  tls:
+    secretName: tls-certificates

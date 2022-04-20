@@ -1,4 +1,3 @@
-use crate::session::SessionId;
 use crate::{
     app::{
         history_manager,
@@ -6,8 +5,10 @@ use crate::{
         ws::{ConnectError, ConnectRequest, Request, Response},
     },
     authz::AuthzObject,
+    authz_hack,
     classroom::ClassroomId,
     db::agent_session::{self, InsertResult},
+    session::SessionId,
     session::SessionKey,
     state::State,
 };
@@ -287,7 +288,7 @@ async fn authorize_agent<S: State>(
     if let Err(err) = state
         .authz()
         .authorize(
-            account_id.audience().to_string(),
+            authz_hack::remove_unwanted_parts_from_audience(account_id.audience()),
             account_id.clone(),
             object,
             "connect".into(),
