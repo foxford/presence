@@ -2,12 +2,12 @@ apiVersion: skaffold/v2beta11
 kind: Config
 build:
   artifacts:
-  - image: foxford/presence-migration
-    docker:
-      dockerfile: docker/migration.dockerfile
-  - image: foxford/presence
-    docker:
-      dockerfile: docker/Dockerfile
+    - image: foxford/presence-migration
+      docker:
+        dockerfile: docker/migration.dockerfile
+    - image: foxford/presence
+      docker:
+        dockerfile: docker/Dockerfile
   tagPolicy:
     gitCommit: {}
   local:
@@ -15,6 +15,14 @@ build:
     useDockerCLI: true
     tryImportMissing: true
 deploy:
-  kustomize:
-    paths:
-    - deploy/k8s/overlays/ns
+  helm:
+    releases:
+      - name: presence
+        chartPath: chart
+        artifactOverrides:
+          container.image: foxford/presence
+          container.migrations: foxford/presence-migration
+        imageStrategy:
+          helm: {}
+        valuesFiles:
+          - deploy/values.yaml
