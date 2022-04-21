@@ -10,6 +10,7 @@ use tracing::{error, info};
 mod api;
 mod error;
 mod history_manager;
+pub mod nats;
 mod router;
 pub mod session_manager;
 mod ws;
@@ -30,7 +31,19 @@ pub async fn run(db: PgPool, authz_cache: Option<AuthzCache>) -> Result<()> {
     // A channel for managing agent session via sending commands from WebSocket handler
     let (cmd_tx, cmd_rx) = mpsc::unbounded_channel::<session_manager::Command>();
 
-    let state = AppState::new(config.clone(), db, authz, replica_id.clone(), cmd_tx);
+    let nats_client = {
+        info!("Connecting to NATS");
+        nats::NatsClient::new(&config.nats.url)?
+    };
+
+    let state = AppState::new(
+        config.clone(),
+        db,
+        authz,
+        replica_id.clone(),
+        cmd_tx,
+        nats_client,
+    );
     let router = router::new(state.clone(), config.authn.clone());
 
     // Move hanging sessions from last time to history
