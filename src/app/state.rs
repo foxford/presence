@@ -1,6 +1,9 @@
-use crate::app::nats::NatsClient;
 use crate::{
-    app::session_manager::{Command, Session},
+    app::{
+        metrics::Metrics,
+        nats::NatsClient,
+        session_manager::{Command, Session},
+    },
     config::Config,
     session::{SessionId, SessionKey},
 };
@@ -16,6 +19,7 @@ pub trait State: Send + Sync + Clone + 'static {
     fn config(&self) -> &Config;
     fn authz(&self) -> &Authz;
     fn replica_id(&self) -> String;
+    fn metrics(&self) -> Metrics;
     fn register_session(
         &self,
         session_key: SessionKey,
@@ -38,6 +42,7 @@ struct InnerState {
     replica_id: String,
     cmd_sender: UnboundedSender<Command>,
     nats_client: NatsClient,
+    metrics: Metrics,
 }
 
 impl AppState {
@@ -48,6 +53,7 @@ impl AppState {
         replica_id: String,
         cmd_sender: UnboundedSender<Command>,
         nats_client: NatsClient,
+        metrics: Metrics,
     ) -> Self {
         Self {
             inner: Arc::new(InnerState {
@@ -57,6 +63,7 @@ impl AppState {
                 replica_id,
                 cmd_sender,
                 nats_client,
+                metrics,
             }),
         }
     }
@@ -74,6 +81,10 @@ impl State for AppState {
 
     fn replica_id(&self) -> String {
         self.inner.replica_id.clone()
+    }
+
+    fn metrics(&self) -> Metrics {
+        self.inner.metrics.clone()
     }
 
     fn register_session(
