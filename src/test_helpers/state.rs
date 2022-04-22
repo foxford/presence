@@ -1,6 +1,6 @@
 use crate::{
-    app::session_manager::Session,
-    config::{Config, WebSocketConfig},
+    app::{nats::NatsClient, session_manager::Session},
+    config::{Config, NatsConfig, WebSocketConfig},
     session::{SessionId, SessionKey},
     state::State,
     test_helpers::prelude::*,
@@ -41,6 +41,9 @@ impl TestState {
                 },
                 authz: Default::default(),
                 svc_audience: SVC_AUDIENCE.to_string(),
+                nats: NatsConfig {
+                    url: "localhost:1234".into(),
+                },
             },
             db_pool,
             authz: authz.into(),
@@ -75,5 +78,9 @@ impl State for TestState {
     async fn get_conn(&self) -> Result<PoolConnection<Postgres>> {
         let conn = self.db_pool.get_conn().await;
         Ok(conn)
+    }
+
+    fn nats_client(&self) -> &NatsClient {
+        todo!()
     }
 }

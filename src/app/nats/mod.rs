@@ -32,7 +32,7 @@ pub struct NatsClient {
 impl NatsClient {
     pub fn new(nats_url: &str) -> anyhow::Result<Self> {
         let (tx, mut rx) = mpsc::unbounded_channel();
-        let (shutdown_tx, mut shutdown_rx) = mpsc::channel(1);
+        let (shutdown_tx, mut shutdown_rx) = mpsc::channel::<oneshot::Sender<()>>(1);
 
         let connection = nats::Options::with_credentials("nats.creds").connect(nats_url)?;
         let jetstream = nats::jetstream::new(connection);
@@ -44,11 +44,14 @@ impl NatsClient {
 
             loop {
                 tokio::select! {
-                    _ = shutdown_rx.recv() => {
+                    Some(wait_tx) = shutdown_rx.recv() => {
                         let _ = inner_tx.try_send(Cmd::Shutdown);
                         let r = tokio::task::spawn_blocking(move || join_handle.join()).await;
                         if let Err(e) = r {
                             warn!(error = ?e, "Failed to shutdown nats client thread properly");
+                        }
+                        if wait_tx.send(()).is_err() {
+                            warn!("Failed to notify of nats client thread shutdown");
                         }
                         return;
                     }
@@ -103,7 +106,7 @@ fn nats_loop(js: JetStream, rx: Receiver<Cmd>) {
                     resp_chan.send(add_new_subscription(&js, &mut subscribers, classroom_id))
                 };
 
-                if let Err(_e) = resp_result {
+                if resp_result.is_err() {
                     warn!(
                         %classroom_id,
                         "Failed to send nats subscription channel back"
