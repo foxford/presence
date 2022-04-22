@@ -5,6 +5,10 @@ container:
     repository: foxford/presence
     tag: ""
 
+  migrations:
+    repository: foxford/presence-migration
+    tag: ""
+
   resources:
     limits:
       cpu: 0.5
