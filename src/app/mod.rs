@@ -1,4 +1,7 @@
-use crate::{authz::AuthzCache, state::AppState};
+use crate::{
+    app::{metrics::Metrics, state::AppState},
+    authz::AuthzCache,
+};
 use anyhow::{Context, Result};
 use futures_util::StreamExt;
 use signal_hook::consts::TERM_SIGNALS;
@@ -12,8 +15,11 @@ mod error;
 mod history_manager;
 pub mod nats;
 mod router;
-pub mod session_manager;
 mod ws;
+
+pub mod metrics;
+pub mod session_manager;
+pub mod state;
 
 pub async fn run(db: PgPool, authz_cache: Option<AuthzCache>) -> Result<()> {
     let replica_id = var("APP_AGENT_LABEL").expect("APP_AGENT_LABEL must be specified");
@@ -43,6 +49,7 @@ pub async fn run(db: PgPool, authz_cache: Option<AuthzCache>) -> Result<()> {
         replica_id.clone(),
         cmd_tx,
         nats_client.clone(),
+        Metrics::new(),
     );
     let router = router::new(state.clone(), config.authn.clone());
 
@@ -50,6 +57,8 @@ pub async fn run(db: PgPool, authz_cache: Option<AuthzCache>) -> Result<()> {
     if let Err(e) = history_manager::move_all_sessions(state.clone(), &replica_id).await {
         error!(error = %e, "Failed to move all sessions to history");
     }
+
+    let metrics_server = svc_utils::metrics::MetricsServer::new(config.metrics_listener_address);
 
     // For graceful shutdown
     let (shutdown_tx, shutdown_rx) = watch::channel(());
@@ -89,6 +98,8 @@ pub async fn run(db: PgPool, authz_cache: Option<AuthzCache>) -> Result<()> {
     if let Err(err) = nats_client.shutdown().await {
         error!(error = %err, "Nats client shutdown failed");
     }
+
+    metrics_server.shutdown().await;
 
     Ok(())
 }

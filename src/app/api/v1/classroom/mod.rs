@@ -2,12 +2,13 @@ use crate::{
     app::{
         api::AppResult,
         error::{ErrorExt, ErrorKind},
+        metrics::AuthzMeasure,
+        state::State,
     },
     authz::AuthzObject,
     authz_hack,
     classroom::ClassroomId,
     db::agent_session,
-    state::State,
 };
 use anyhow::Context;
 use axum::{
@@ -55,7 +56,8 @@ async fn do_list_agents<S: State>(
             object,
             "read".into(),
         )
-        .await?;
+        .await
+        .measure()?;
 
     let mut conn = state
         .get_conn()

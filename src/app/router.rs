@@ -1,6 +1,7 @@
-use crate::{
-    app::{api::v1, ws},
+use crate::app::{
+    api::v1,
     state::{AppState, State},
+    ws,
 };
 use axum::{
     extract::Extension,

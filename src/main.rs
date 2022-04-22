@@ -8,7 +8,6 @@ mod classroom;
 mod config;
 mod db;
 mod session;
-mod state;
 #[cfg(test)]
 mod test_helpers;
 mod tracing;

@@ -1,6 +1,8 @@
 use crate::{
+    app::state::State,
     app::{
         history_manager,
+        metrics::AuthzMeasure,
         session_manager::Session,
         ws::{ConnectError, ConnectRequest, Request, Response},
     },
@@ -10,7 +12,6 @@ use crate::{
     db::agent_session::{self, InsertResult},
     session::SessionId,
     session::SessionKey,
-    state::State,
 };
 use anyhow::Result;
 use axum::{
@@ -57,10 +58,14 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
                     info!("Successful authentication, session_key: {}", &session_key);
                     let _ = sender.send(Message::Text(m)).await;
 
+                    state.metrics().ws_connection_success().inc();
+
                     (session_id, session_key)
                 }
                 Err(e) => {
                     info!("Connection is closed (unsuccessful request)");
+                    state.metrics().ws_connection_error().inc();
+
                     let resp = make_response(e.into());
                     let _ = sender.send(Message::Text(resp)).await;
                     let _ = sender.close().await;
@@ -78,6 +83,8 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
             return;
         }
     };
+
+    state.metrics().ws_connection_total().inc();
 
     // To close old connections from the same agents
     let mut close_rx = match state.register_session(session_key.clone(), session_id) {
@@ -177,6 +184,8 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
                 info!("Old connection is closed");
                 let _ = sender.close().await;
 
+                state.metrics().ws_connection_total().dec();
+
                 // Skip moving old session to history on the same replica
                 if result.is_err() {
                     return;
@@ -190,6 +199,8 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
             }
         }
     }
+
+    state.metrics().ws_connection_total().dec();
 
     if let Err(e) = state.terminate_session(session_key.clone(), false).await {
         error!(error = %e, "Failed to terminate session_key: {}", session_key);
@@ -215,8 +226,9 @@ async fn handle_authn_message<S: State>(
         Ok(Request::ConnectRequest(ConnectRequest {
             token,
             classroom_id,
+            agent_label,
         })) => {
-            let agent_id = match get_agent_id_from_token(token, authn) {
+            let agent_id = match get_agent_id_from_token(token, authn, agent_label) {
                 Ok(agent_id) => agent_id,
                 Err(err) => {
                     error!(error = %err, "Failed to authenticate an agent");
@@ -320,6 +332,7 @@ async fn authorize_agent<S: State>(
             "connect".into(),
         )
         .await
+        .measure()
     {
         error!(error = %err, "Failed to authorize action");
         return Err(ConnectError::AccessDenied);
@@ -328,12 +341,16 @@ async fn authorize_agent<S: State>(
     Ok(())
 }
 
-fn get_agent_id_from_token(token: String, authn: Arc<ConfigMap>) -> Result<AgentId> {
+fn get_agent_id_from_token(
+    token: String,
+    authn: Arc<ConfigMap>,
+    agent_label: String,
+) -> Result<AgentId> {
     let data = decode_jws_compact_with_config::<String>(&token, authn.as_ref())?;
     let claims = data.claims;
 
     let account = AccountId::new(claims.subject(), claims.audience());
-    let agent_id = AgentId::new("http", account);
+    let agent_id = AgentId::new(&agent_label, account);
 
     Ok(agent_id)
 }
@@ -397,7 +414,8 @@ mod tests {
                 "type": "connect_request",
                 "payload": {
                     "classroom_id": classroom_id,
-                    "token": "1234"
+                    "token": "1234",
+                    "agent_label": "http"
                 }
             });
 
@@ -425,7 +443,8 @@ mod tests {
                 "type": "connect_request",
                 "payload": {
                     "classroom_id": classroom_id,
-                    "token": token
+                    "token": token,
+                    "agent_label": "http"
                 }
             });
 
@@ -453,7 +472,8 @@ mod tests {
                 "type": "connect_request",
                 "payload": {
                     "classroom_id": classroom_id,
-                    "token": token
+                    "token": token,
+                    "agent_label": "http"
                 }
             });
 

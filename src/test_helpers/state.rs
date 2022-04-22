@@ -1,8 +1,7 @@
 use crate::{
-    app::{nats::NatsClient, session_manager::Session},
+    app::{metrics::Metrics, nats::NatsClient, session_manager::Session, state::State},
     config::{Config, NatsConfig, WebSocketConfig},
     session::{SessionId, SessionKey},
-    state::State,
     test_helpers::prelude::*,
 };
 use anyhow::Result;
@@ -64,6 +63,10 @@ impl State for TestState {
 
     fn replica_id(&self) -> String {
         self.replica_id.clone()
+    }
+
+    fn metrics(&self) -> Metrics {
+        todo!()
     }
 
     fn register_session(&self, _: SessionKey, _: SessionId) -> Result<oneshot::Receiver<()>> {

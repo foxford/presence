@@ -1,12 +1,13 @@
 use crate::{
+    app::state::State,
     app::{
         api::AppResult,
         error::{ErrorExt, ErrorKind},
+        metrics::AuthzMeasure,
     },
     authz::AuthzObject,
     classroom::ClassroomId,
     db::agent_session,
-    state::State,
 };
 use anyhow::Context;
 use axum::{body, extract::Extension, Json};
@@ -45,7 +46,8 @@ async fn do_count_agents<S: State>(
             object,
             "read".into(),
         )
-        .await?;
+        .await
+        .measure()?;
 
     let mut conn = state
         .get_conn()
