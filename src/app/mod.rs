@@ -42,7 +42,7 @@ pub async fn run(db: PgPool, authz_cache: Option<AuthzCache>) -> Result<()> {
         authz,
         replica_id.clone(),
         cmd_tx,
-        nats_client,
+        nats_client.clone(),
     );
     let router = router::new(state.clone(), config.authn.clone());
 
@@ -84,6 +84,10 @@ pub async fn run(db: PgPool, authz_cache: Option<AuthzCache>) -> Result<()> {
 
     if let Err(err) = session_manager.await {
         error!(error = %err, "Failed to await session manager completion");
+    }
+
+    if let Err(err) = nats_client.shutdown().await {
+        error!(error = %err, "Nats client shutdown failed");
     }
 
     Ok(())
