@@ -2,3 +2,4 @@
 .idea
 App.toml
 /.env
+/deploy

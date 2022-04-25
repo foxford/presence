@@ -19,12 +19,12 @@ container:
 
 svc:
   audience: svc.services
-  credentials:
-    svc-secret:
-      - subPath: private-key
-        mountPath: /path/to/svc/private/key
-      - subPath: public-key
-        mountPath: /path/to/svc/public/key
+  # credentials:
+  #   svc-secret:
+  #     - subPath: private-key
+  #       mountPath: /path/to/svc/private/key
+  #     - subPath: public-key
+  #       mountPath: /path/to/svc/public/key
   authz:
     type: local
     trusted: [svc.foo.bar]
