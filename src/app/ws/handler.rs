@@ -73,7 +73,7 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
                 }
             },
             Err(e) => {
-                error!(error = %e, "An error occurred when receiving a message");
+                error!(error = %e, "An error occurred when receiving an authn message");
                 return;
             }
         },
