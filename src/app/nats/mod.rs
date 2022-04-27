@@ -1,4 +1,8 @@
-use std::{collections::HashMap, io, thread};
+use std::{
+    collections::HashMap,
+    io, thread,
+    time::{Duration, Instant},
+};
 
 use anyhow::Context;
 use crossbeam_channel::{unbounded, Receiver};
@@ -7,7 +11,8 @@ use nats::{
     Message,
 };
 use tokio::sync::{broadcast, mpsc, oneshot};
-use tracing::warn;
+use tokio::time::{interval, Duration as tokioDuration, Interval, MissedTickBehavior};
+use tracing::{error, info, warn};
 
 use crate::classroom::ClassroomId;
 
@@ -17,8 +22,12 @@ struct Subscribe {
     resp_chan: oneshot::Sender<io::Result<broadcast::Receiver<Message>>>,
 }
 
+const CLEANUP_TIMEOUT: Duration = Duration::from_secs(600);
+const CLEANUP_PERIOD: tokioDuration = tokioDuration::from_secs(60);
+
 #[derive(Debug)]
 enum Cmd {
+    Cleanup,
     Subscribe(Subscribe),
     Shutdown,
 }
@@ -31,10 +40,11 @@ pub struct NatsClient {
 
 impl NatsClient {
     pub fn new(nats_url: &str) -> anyhow::Result<Self> {
-        let (tx, mut rx) = mpsc::unbounded_channel();
+        let (tx, mut rx) = mpsc::unbounded_channel::<Subscribe>();
         let (shutdown_tx, mut shutdown_rx) = mpsc::channel::<oneshot::Sender<()>>(1);
 
         let connection = nats::Options::with_credentials("nats.creds").connect(nats_url)?;
+        info!("Connected to nats");
         let jetstream = nats::jetstream::new(connection);
 
         tokio::task::spawn(async move {
@@ -42,9 +52,13 @@ impl NatsClient {
 
             let join_handle = thread::spawn(move || nats_loop(jetstream, inner_rx));
 
+            let mut cleanup_interval = cleanup_interval(CLEANUP_PERIOD);
+
             loop {
                 tokio::select! {
                     Some(wait_tx) = shutdown_rx.recv() => {
+                        info!("Nats client received shutdown");
+
                         let _ = inner_tx.try_send(Cmd::Shutdown);
                         let r = tokio::task::spawn_blocking(move || join_handle.join()).await;
                         if let Err(e) = r {
@@ -56,7 +70,13 @@ impl NatsClient {
                         return;
                     }
                     Some(sub) = rx.recv() => {
+                        let classroom_id = sub.classroom_id;
+                        info!(%classroom_id, "Nats client received subscribe");
+
                         let _ = inner_tx.try_send(Cmd::Subscribe(sub));
+                    }
+                    _ = cleanup_interval.tick() => {
+                        let _ = inner_tx.try_send(Cmd::Cleanup);
                     }
                 }
             }
@@ -93,17 +113,29 @@ impl NatsClient {
 }
 
 fn nats_loop(js: JetStream, rx: Receiver<Cmd>) {
-    let mut subscribers: HashMap<ClassroomId, Subscription> = HashMap::new();
+    let mut subscribers = Subscriptions::new();
+
     while let Ok(cmd) = rx.recv() {
         match cmd {
             Cmd::Subscribe(Subscribe {
                 classroom_id,
                 resp_chan,
             }) => {
-                let resp_result = if let Some(sub) = subscribers.get(&classroom_id) {
-                    resp_chan.send(Ok(sub.tx.subscribe()))
-                } else {
-                    resp_chan.send(add_new_subscription(&js, &mut subscribers, classroom_id))
+                let maybe_rx = subscribers.get(&classroom_id).and_then(|sub| {
+                    if sub.tx.receiver_count() > 0 {
+                        Some(sub.tx.subscribe())
+                    } else {
+                        None
+                    }
+                });
+                let resp_result = match maybe_rx {
+                    Some(rx) => {
+                        info!("Sending existing sub tx");
+                        resp_chan.send(Ok(rx))
+                    }
+                    None => {
+                        resp_chan.send(add_new_subscription(&js, &mut subscribers, classroom_id))
+                    }
                 };
 
                 if resp_result.is_err() {
@@ -114,21 +146,28 @@ fn nats_loop(js: JetStream, rx: Receiver<Cmd>) {
                 }
             }
             Cmd::Shutdown => break,
+            Cmd::Cleanup => subscribers.cleanup(CLEANUP_TIMEOUT),
         }
     }
 }
 
 fn add_new_subscription(
     js: &JetStream,
-    subscribers: &mut HashMap<ClassroomId, Subscription>,
+    subscribers: &mut Subscriptions,
     classroom_id: ClassroomId,
 ) -> io::Result<broadcast::Receiver<Message>> {
     let topic = format!("classrooms.{}.*", classroom_id);
     let options = SubscribeOptions::bind_stream("classrooms-reliable".into())
-        .deliver_last()
+        .deliver_new()
         .ack_none()
         .replay_instant();
+
+    info!(%topic, "Subscribing to jetstream");
+
     let subscription = js.subscribe_with_options(&topic, &options)?;
+
+    info!(%topic, "Subscribed to jetstream");
+
     let (tx, rx) = broadcast::channel(50);
 
     let tx_ = tx.clone();
@@ -136,15 +175,80 @@ fn add_new_subscription(
     std::thread::spawn(move || {
         for message in subscription.iter() {
             if let Err(_e) = tx_.send(message) {
+                error!(%classroom_id, "Failed to send message from nats subscription to receiver");
                 return;
             }
         }
     });
 
-    subscribers.insert(classroom_id, Subscription { tx });
+    subscribers.insert(classroom_id, tx);
     Ok(rx)
+}
+
+struct Subscriptions {
+    map: HashMap<ClassroomId, Subscription>,
+}
+
+impl Subscriptions {
+    fn new() -> Self {
+        Self {
+            map: HashMap::new(),
+        }
+    }
+
+    fn insert(&mut self, cid: ClassroomId, tx: broadcast::Sender<Message>) -> Option<Subscription> {
+        self.map.insert(
+            cid,
+            Subscription {
+                tx,
+                created_at: Instant::now(),
+            },
+        )
+    }
+
+    fn get(&self, cid: &ClassroomId) -> Option<&Subscription> {
+        self.map.get(cid)
+    }
+
+    fn cleanup(&mut self, timeout: Duration) {
+        self.map
+            .retain(|_cid, sub| sub.created_at.elapsed() < timeout || sub.tx.receiver_count() > 0)
+    }
+
+    #[cfg(test)]
+    fn len(&self) -> usize {
+        self.map.len()
+    }
 }
 
 struct Subscription {
     tx: broadcast::Sender<nats::Message>,
+    created_at: Instant,
+}
+
+fn cleanup_interval(d: tokioDuration) -> Interval {
+    let mut interval = interval(d);
+    interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
+    interval
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use uuid::Uuid;
+
+    #[tokio::test]
+    async fn test_subscribers_cleanup() {
+        let mut subscribers = Subscriptions::new();
+        let (tx, rx) = broadcast::channel(50);
+        drop(rx);
+
+        subscribers.insert(Uuid::new_v4().into(), tx);
+        assert_eq!(subscribers.len(), 1);
+
+        tokio::time::sleep(tokioDuration::from_millis(500)).await;
+
+        subscribers.cleanup(Duration::from_millis(300));
+        assert_eq!(subscribers.len(), 0);
+    }
 }
