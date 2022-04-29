@@ -1,10 +1,14 @@
 use crate::{
-    app::state::State,
     app::{
         history_manager,
         metrics::AuthzMeasure,
+        nats::{PRESENCE_EVENT_LABEL, PRESENCE_SENDER_AGENT_ID},
         session_manager::Session,
-        ws::{ConnectError, ConnectRequest, Request, Response},
+        state::State,
+        ws::{
+            event::{Event, Label},
+            ConnectError, ConnectRequest, Request, Response,
+        },
     },
     authz::AuthzObject,
     authz_hack,
@@ -21,9 +25,10 @@ use axum::{
     },
     response::IntoResponse,
 };
-use futures_util::{SinkExt, StreamExt};
+use futures_util::{stream::SplitSink, SinkExt, StreamExt};
+use serde::Serialize;
 use sqlx::types::time::OffsetDateTime;
-use std::sync::Arc;
+use std::{str::FromStr, sync::Arc};
 use svc_agent::AgentId;
 use svc_authn::{
     jose::ConfigMap, token::jws_compact::extract::decode_jws_compact_with_config, AccountId,
@@ -51,24 +56,43 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
     .await;
 
     // Authentication
-    let (session_id, session_key) = match authn_timeout {
+    let (session_id, session_key, mut nats_rx, mut close_rx) = match authn_timeout {
         Ok(Some(result)) => match result {
             Ok(msg) => match handle_authn_message(msg, authn, state.clone()).await {
                 Ok((m, (session_id, session_key))) => {
+                    let nats_rx = match state
+                        .nats_client()
+                        .subscribe(session_key.classroom_id)
+                        .await
+                    {
+                        Err(e) => {
+                            error!(error = ?e);
+                            close_connection_with_error(sender, Response::from(e)).await;
+                            return;
+                        }
+                        Ok(rx) => rx,
+                    };
+
+                    // To close old connections from the same agents
+                    let close_rx = match state.register_session(session_key.clone(), session_id) {
+                        Ok(rx) => rx,
+                        Err(e) => {
+                            error!(error = %e, "Failed to register session_key: {}", session_key);
+                            close_connection_with_error(sender, Response::from(e)).await;
+                            return;
+                        }
+                    };
+
                     info!("Successful authentication, session_key: {}", &session_key);
                     let _ = sender.send(Message::Text(m)).await;
-
                     state.metrics().ws_connection_success().inc();
 
-                    (session_id, session_key)
+                    (session_id, session_key, nats_rx, close_rx)
                 }
                 Err(e) => {
                     info!("Connection is closed (unsuccessful request)");
                     state.metrics().ws_connection_error().inc();
-
-                    let resp = make_response(e.into());
-                    let _ = sender.send(Message::Text(resp)).await;
-                    let _ = sender.close().await;
+                    close_connection_with_error(sender, Response::from(e)).await;
                     return;
                 }
             },
@@ -79,37 +103,14 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
         },
         Ok(None) | Err(_) => {
             info!("Connection is closed (authentication timeout exceeded)");
-            let _ = sender.close().await;
+            close_connection_with_error(sender, Event::new(Label::AuthTimedOut)).await;
             return;
         }
     };
 
     state.metrics().ws_connection_total().inc();
 
-    // To close old connections from the same agents
-    let mut close_rx = match state.register_session(session_key.clone(), session_id) {
-        Ok(rx) => rx,
-        Err(e) => {
-            error!(error = %e, "Failed to register session_key: {}", session_key);
-            return;
-        }
-    };
-
     let mut ping_sent = false;
-
-    let mut nats_rx = match state
-        .nats_client()
-        .subscribe(session_key.classroom_id)
-        .await
-        .map_err(|e| {
-            error!(error = ?e);
-            e
-        }) {
-        Err(_) => {
-            return;
-        }
-        Ok(rx) => rx,
-    };
 
     // Ping/Pong intervals
     let mut ping_interval = interval(state.config().websocket.ping_interval);
@@ -122,6 +123,32 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
     loop {
         tokio::select! {
             Ok(msg) = nats_rx.recv() => {
+                if let Some(headers) = msg.headers {
+                    let label = headers
+                        .get(PRESENCE_EVENT_LABEL)
+                        .map(|l| l.as_str());
+
+                    let sender_id = headers
+                        .get(PRESENCE_SENDER_AGENT_ID)
+                        .and_then(|s| AgentId::from_str(s).ok());
+
+                    match (label, sender_id) {
+                        (Some("agent.replaced"), Some(sender_id)) => {
+                            // Send the `agent.replaced` event only for yourself
+                            if session_key.agent_id != sender_id {
+                                continue;
+                            }
+                        }
+                        (_, Some(sender_id)) => {
+                            // Don't send events to yourself
+                            if session_key.agent_id == sender_id {
+                                continue;
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+
                 match String::from_utf8(msg.data) {
                     Ok(s) => {
                         if let Err(e) = sender.send(Message::Text(s)).await {
@@ -163,7 +190,6 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
             _ = ping_interval.tick() => {
                 if sender.send(Message::Ping(Vec::new())).await.is_err() {
                     info!("An agent disconnected (ping not sent)");
-
                     break;
                 }
 
@@ -174,16 +200,16 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
             _ = pong_expiration_interval.tick() => {
                 if ping_sent {
                     info!("Connection is closed (pong timeout exceeded)");
-                    let _ = sender.close().await;
-
+                    close_connection_with_error(sender, Event::new(Label::PongTimedOut)).await;
                     break;
                 }
             }
             // Close old connections
             result = &mut close_rx => {
                 info!("Old connection is closed");
-                let _ = sender.close().await;
 
+                let event = Event::new(Label::AgentReplaced).payload(session_key.agent_id.clone());
+                close_connection_with_error(sender, event).await;
                 state.metrics().ws_connection_total().dec();
 
                 // Skip moving old session to history on the same replica
@@ -202,13 +228,33 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
 
     state.metrics().ws_connection_total().dec();
 
+    let event = Event::new(Label::AgentLeave).payload(session_key.agent_id.clone());
+    if let Err(e) = state
+        .nats_client()
+        .publish_event(session_key.clone(), event)
+    {
+        error!(error = %e, "Failed to send agent.leave notification");
+        return;
+    }
+
     if let Err(e) = state.terminate_session(session_key.clone(), false).await {
         error!(error = %e, "Failed to terminate session_key: {}", session_key);
+        return;
     }
 
     if let Err(err) = history_manager::move_single_session(state, session_id).await {
         error!(error = %err, "Failed to move session to history");
     }
+}
+
+/// Closes the WebSocket connection with an error message
+async fn close_connection_with_error<T: Serialize>(
+    mut sender: SplitSink<WebSocket, Message>,
+    resp: T,
+) {
+    let resp = serialize_to_json(resp);
+    let _ = sender.send(Message::Text(resp)).await;
+    let _ = sender.close().await;
 }
 
 async fn handle_authn_message<S: State>(
@@ -240,7 +286,7 @@ async fn handle_authn_message<S: State>(
             let session_id = create_agent_session(state, classroom_id, &agent_id).await?;
 
             Ok((
-                make_response(Response::ConnectSuccess),
+                serialize_to_json(Response::ConnectSuccess),
                 (session_id, SessionKey::new(agent_id, classroom_id)),
             ))
         }
@@ -286,7 +332,17 @@ async fn create_agent_session<S: State>(
     );
 
     match insert_query.execute(&mut conn).await {
-        InsertResult::Ok(agent_session) => Ok(agent_session.id),
+        InsertResult::Ok(agent_session) => {
+            let session_key =
+                SessionKey::new(agent_session.agent_id.clone(), agent_session.classroom_id);
+            let event = Event::new(Label::AgentEnter).payload(agent_session.agent_id);
+            if let Err(e) = state.nats_client().publish_event(session_key, event) {
+                error!(error = %e, "Failed to send agent.enter notification");
+                return Err(ConnectError::MessagingFailed);
+            }
+
+            Ok(agent_session.id)
+        }
         InsertResult::Error(err) => {
             error!(error = %err, "Failed to create an agent session");
             Err(ConnectError::DbQueryFailed)
@@ -355,7 +411,7 @@ fn get_agent_id_from_token(
     Ok(agent_id)
 }
 
-fn make_response(response: Response) -> String {
+fn serialize_to_json<T: Serialize>(response: T) -> String {
     serde_json::to_string(&response).unwrap_or_default()
 }
 

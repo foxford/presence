@@ -1,20 +1,25 @@
+use crate::{app::ws::event::Event, classroom::ClassroomId, session::SessionKey};
+use anyhow::{Context, Result};
+use crossbeam_channel::{unbounded, Receiver};
+use nats::{
+    jetstream::{JetStream, SubscribeOptions},
+    HeaderMap, Message,
+};
 use std::{
     collections::HashMap,
     io, thread,
     time::{Duration, Instant},
 };
-
-use anyhow::Context;
-use crossbeam_channel::{unbounded, Receiver};
-use nats::{
-    jetstream::{JetStream, SubscribeOptions},
-    Message,
+use tokio::{
+    sync::{broadcast, mpsc, oneshot},
+    time::{interval, Duration as tokioDuration, Interval, MissedTickBehavior},
 };
-use tokio::sync::{broadcast, mpsc, oneshot};
-use tokio::time::{interval, Duration as tokioDuration, Interval, MissedTickBehavior};
 use tracing::{error, info, warn};
 
-use crate::classroom::ClassroomId;
+mod subscriptions;
+
+pub const PRESENCE_EVENT_LABEL: &str = "presence-label";
+pub const PRESENCE_SENDER_AGENT_ID: &str = "presence-sender-agent-id";
 
 #[derive(Debug)]
 struct Subscribe {
@@ -36,10 +41,11 @@ enum Cmd {
 pub struct NatsClient {
     tx: mpsc::UnboundedSender<Subscribe>,
     shutdown_tx: mpsc::Sender<oneshot::Sender<()>>,
+    jetstream: JetStream,
 }
 
 impl NatsClient {
-    pub fn new(nats_url: &str) -> anyhow::Result<Self> {
+    pub fn new(nats_url: &str) -> Result<Self> {
         let (tx, mut rx) = mpsc::unbounded_channel::<Subscribe>();
         let (shutdown_tx, mut shutdown_rx) = mpsc::channel::<oneshot::Sender<()>>(1);
 
@@ -47,10 +53,11 @@ impl NatsClient {
         info!("Connected to nats");
         let jetstream = nats::jetstream::new(connection);
 
+        let js = jetstream.clone();
         tokio::task::spawn(async move {
             let (inner_tx, inner_rx) = unbounded();
 
-            let join_handle = thread::spawn(move || nats_loop(jetstream, inner_rx));
+            let join_handle = thread::spawn(move || nats_loop(&js, inner_rx));
 
             let mut cleanup_interval = cleanup_interval(CLEANUP_PERIOD);
 
@@ -82,13 +89,17 @@ impl NatsClient {
             }
         });
 
-        Ok(Self { tx, shutdown_tx })
+        Ok(Self {
+            tx,
+            shutdown_tx,
+            jetstream,
+        })
     }
 
     pub async fn subscribe(
         &self,
         classroom_id: ClassroomId,
-    ) -> Result<broadcast::Receiver<Message>, anyhow::Error> {
+    ) -> Result<broadcast::Receiver<Message>> {
         let (resp_chan, resp_rx) = oneshot::channel();
         self.tx
             .send(Subscribe {
@@ -102,7 +113,7 @@ impl NatsClient {
             .context("Subscription failed")
     }
 
-    pub async fn shutdown(&self) -> Result<(), anyhow::Error> {
+    pub async fn shutdown(&self) -> Result<()> {
         let (wait_tx, wait_rx) = oneshot::channel();
         self.shutdown_tx
             .send(wait_tx)
@@ -110,9 +121,22 @@ impl NatsClient {
             .context("Failed to send shutdown to nats task")?;
         wait_rx.await.context("Failed to await nats shutdown")
     }
+
+    pub fn publish_event(&self, session_key: SessionKey, event: Event) -> Result<()> {
+        let data = serde_json::to_string(&event)?;
+        let subject = format!("classrooms.{}.presence", session_key.classroom_id);
+        let mut headers = HeaderMap::new();
+        headers.insert(PRESENCE_SENDER_AGENT_ID, session_key.agent_id.to_string());
+        headers.insert(PRESENCE_EVENT_LABEL, event.label.to_string());
+
+        let msg = Message::new(&subject, None, data, Some(headers));
+        self.jetstream.publish_message(&msg)?;
+
+        Ok(())
+    }
 }
 
-fn nats_loop(js: JetStream, rx: Receiver<Cmd>) {
+fn nats_loop(js: &JetStream, rx: Receiver<Cmd>) {
     let mut subscribers = Subscriptions::new();
 
     while let Ok(cmd) = rx.recv() {
@@ -134,7 +158,7 @@ fn nats_loop(js: JetStream, rx: Receiver<Cmd>) {
                         resp_chan.send(Ok(rx))
                     }
                     None => {
-                        resp_chan.send(add_new_subscription(&js, &mut subscribers, classroom_id))
+                        resp_chan.send(add_new_subscription(js, &mut subscribers, classroom_id))
                     }
                 };
 

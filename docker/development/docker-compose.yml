@@ -11,6 +11,13 @@ services:
     healthcheck:
       test: pg_isready -U postgres -h 127.0.0.1
       interval: 5s
+  nats:
+    image: nats:latest
+    ports:
+      - '4222:4222'
+    command: '-js -c /etc/nats-config/nats.conf'
+    volumes:
+      - ./nats/nats.conf:/etc/nats-config/nats.conf
 
 volumes:
   postgres:

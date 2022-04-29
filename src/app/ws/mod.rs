@@ -5,16 +5,17 @@ use svc_error::Error as SvcError;
 
 pub use handler::handler;
 
+pub mod event;
 mod handler;
 
 #[derive(Deserialize)]
 #[serde(tag = "type", content = "payload", rename_all = "snake_case")]
-pub(crate) enum Request {
+pub enum Request {
     ConnectRequest(ConnectRequest),
 }
 
 #[derive(Deserialize)]
-pub(crate) struct ConnectRequest {
+pub struct ConnectRequest {
     classroom_id: ClassroomId,
     token: String,
     agent_label: String,
@@ -22,7 +23,7 @@ pub(crate) struct ConnectRequest {
 
 #[derive(Serialize)]
 #[serde(tag = "type", content = "payload", rename_all = "snake_case")]
-pub(crate) enum Response {
+pub enum Response {
     ConnectSuccess,
     ConnectFailure(SvcError),
 }
@@ -39,10 +40,10 @@ enum ConnectError {
 }
 
 impl From<ConnectError> for Response {
-    fn from(f: ConnectError) -> Self {
+    fn from(e: ConnectError) -> Self {
         let mut builder = SvcError::builder();
 
-        builder = match f {
+        builder = match e {
             ConnectError::UnsupportedRequest => builder
                 .status(StatusCode::UNPROCESSABLE_ENTITY)
                 .kind("unsupported_request", "Unsupported Request"),
@@ -70,6 +71,18 @@ impl From<ConnectError> for Response {
         };
 
         let error = builder.build();
+
+        Response::ConnectFailure(error)
+    }
+}
+
+impl From<anyhow::Error> for Response {
+    fn from(e: anyhow::Error) -> Self {
+        let error = SvcError::builder()
+            .status(StatusCode::INTERNAL_SERVER_ERROR)
+            .kind("internal_error", "Internal error")
+            .detail(&e.to_string())
+            .build();
 
         Response::ConnectFailure(error)
     }
