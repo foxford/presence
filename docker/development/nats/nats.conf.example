@@ -1,0 +1,6 @@
+operator: <OPERATOR>
+system_account: <SYSTEM_ACCOUNT>
+resolver: MEMORY
+resolver_preload: {
+  <ACCOUNT>: <TOKEN>
+}

@@ -1,5 +1,6 @@
 use crate::{app::ws::event::Event, classroom::ClassroomId, session::SessionKey};
 use anyhow::{Context, Result};
+use async_trait::async_trait;
 use crossbeam_channel::{unbounded, Receiver};
 use nats::{
     jetstream::{JetStream, SubscribeOptions},
@@ -15,8 +16,6 @@ use tokio::{
     time::{interval, Duration as tokioDuration, Interval, MissedTickBehavior},
 };
 use tracing::{error, info, warn};
-
-mod subscriptions;
 
 pub const PRESENCE_EVENT_LABEL: &str = "presence-label";
 pub const PRESENCE_SENDER_AGENT_ID: &str = "presence-sender-agent-id";
@@ -38,13 +37,21 @@ enum Cmd {
 }
 
 #[derive(Clone)]
-pub struct NatsClient {
+pub struct Client {
     tx: mpsc::UnboundedSender<Subscribe>,
     shutdown_tx: mpsc::Sender<oneshot::Sender<()>>,
     jetstream: JetStream,
 }
 
-impl NatsClient {
+#[async_trait]
+pub trait NatsClient: Send + Sync {
+    async fn subscribe(&self, _: ClassroomId) -> Result<broadcast::Receiver<Message>>;
+    fn publish_event(&self, _: SessionKey, _: Event) -> Result<()> {
+        Ok(())
+    }
+}
+
+impl Client {
     pub fn new(nats_url: &str) -> Result<Self> {
         let (tx, mut rx) = mpsc::unbounded_channel::<Subscribe>();
         let (shutdown_tx, mut shutdown_rx) = mpsc::channel::<oneshot::Sender<()>>(1);
@@ -96,10 +103,19 @@ impl NatsClient {
         })
     }
 
-    pub async fn subscribe(
-        &self,
-        classroom_id: ClassroomId,
-    ) -> Result<broadcast::Receiver<Message>> {
+    pub async fn shutdown(&self) -> Result<()> {
+        let (wait_tx, wait_rx) = oneshot::channel();
+        self.shutdown_tx
+            .send(wait_tx)
+            .await
+            .context("Failed to send shutdown to nats task")?;
+        wait_rx.await.context("Failed to await nats shutdown")
+    }
+}
+
+#[async_trait]
+impl NatsClient for Client {
+    async fn subscribe(&self, classroom_id: ClassroomId) -> Result<broadcast::Receiver<Message>> {
         let (resp_chan, resp_rx) = oneshot::channel();
         self.tx
             .send(Subscribe {
@@ -113,16 +129,7 @@ impl NatsClient {
             .context("Subscription failed")
     }
 
-    pub async fn shutdown(&self) -> Result<()> {
-        let (wait_tx, wait_rx) = oneshot::channel();
-        self.shutdown_tx
-            .send(wait_tx)
-            .await
-            .context("Failed to send shutdown to nats task")?;
-        wait_rx.await.context("Failed to await nats shutdown")
-    }
-
-    pub fn publish_event(&self, session_key: SessionKey, event: Event) -> Result<()> {
+    fn publish_event(&self, session_key: SessionKey, event: Event) -> Result<()> {
         let data = serde_json::to_string(&event)?;
         let subject = format!("classrooms.{}.presence", session_key.classroom_id);
         let mut headers = HeaderMap::new();

@@ -1,7 +1,7 @@
 use crate::{
     app::{
         metrics::Metrics,
-        nats::NatsClient,
+        nats::{Client, NatsClient},
         session_manager::{Command, Session},
     },
     config::Config,
@@ -27,7 +27,7 @@ pub trait State: Send + Sync + Clone + 'static {
     ) -> Result<oneshot::Receiver<()>>;
     async fn terminate_session(&self, session_key: SessionKey, return_id: bool) -> Result<Session>;
     async fn get_conn(&self) -> Result<PoolConnection<Postgres>>;
-    fn nats_client(&self) -> &NatsClient;
+    fn nats_client(&self) -> &dyn NatsClient;
 }
 
 #[derive(Clone)]
@@ -41,7 +41,7 @@ struct InnerState {
     authz: Authz,
     replica_id: String,
     cmd_sender: UnboundedSender<Command>,
-    nats_client: NatsClient,
+    nats_client: Box<dyn NatsClient>,
     metrics: Metrics,
 }
 
@@ -52,7 +52,7 @@ impl AppState {
         authz: Authz,
         replica_id: String,
         cmd_sender: UnboundedSender<Command>,
-        nats_client: NatsClient,
+        nats_client: Client,
         metrics: Metrics,
     ) -> Self {
         Self {
@@ -62,7 +62,7 @@ impl AppState {
                 authz,
                 replica_id,
                 cmd_sender,
-                nats_client,
+                nats_client: Box::new(nats_client) as Box<dyn NatsClient>,
                 metrics,
             }),
         }
@@ -125,7 +125,7 @@ impl State for AppState {
             .context("Failed to acquire DB connection")
     }
 
-    fn nats_client(&self) -> &NatsClient {
-        &self.inner.nats_client
+    fn nats_client(&self) -> &dyn NatsClient {
+        self.inner.nats_client.as_ref()
     }
 }

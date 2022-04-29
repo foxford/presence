@@ -39,7 +39,7 @@ pub async fn run(db: PgPool, authz_cache: Option<AuthzCache>) -> Result<()> {
 
     let nats_client = {
         info!("Connecting to NATS");
-        nats::NatsClient::new(&config.nats.url)?
+        nats::Client::new(&config.nats.url)?
     };
 
     let state = AppState::new(
