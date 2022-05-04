@@ -1,4 +1,5 @@
 use serde_derive::Serialize;
+use std::fmt::{Display, Formatter};
 use svc_agent::AgentId;
 
 #[derive(Serialize)]
@@ -24,8 +25,8 @@ pub enum Label {
     PongTimedOut,
 }
 
-impl ToString for Label {
-    fn to_string(&self) -> String {
+impl Display for Label {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let label = match self {
             Label::AgentEnter => "agent.enter",
             Label::AgentLeave => "agent.leave",
@@ -34,7 +35,7 @@ impl ToString for Label {
             Label::PongTimedOut => "agent.pong_timed_out",
         };
 
-        String::from(label)
+        write!(f, "{}", label)
     }
 }
 

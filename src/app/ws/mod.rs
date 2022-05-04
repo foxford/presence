@@ -1,6 +1,7 @@
 use crate::classroom::ClassroomId;
 use http::StatusCode;
-use serde_derive::{Deserialize, Serialize};
+use serde::{de::Error, Deserialize, Deserializer};
+use serde_derive::Serialize;
 use svc_error::Error as SvcError;
 
 pub use handler::handler;
@@ -18,7 +19,20 @@ pub enum Request {
 pub struct ConnectRequest {
     classroom_id: ClassroomId,
     token: String,
+    #[serde(deserialize_with = "deserialize_agent_label")]
     agent_label: String,
+}
+
+fn deserialize_agent_label<'de, D>(deserializer: D) -> Result<String, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let s = String::deserialize(deserializer)?;
+    if s.is_empty() {
+        return Err(D::Error::custom("agent_label is empty"));
+    }
+
+    Ok(s)
 }
 
 #[derive(Serialize)]
