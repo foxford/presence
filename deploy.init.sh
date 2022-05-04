@@ -84,6 +84,9 @@ function DIR_FROM_GITHUB_RECURSIVELY() {
 set -ex
 
 if [[ -n ${NAMESPACE} ]]; then
+    FILE_FROM_GITHUB "deploy" "${SOURCE}/certs/ca-${NAMESPACE}.crt"
+    FILE_FROM_GITHUB "deploy" "${SOURCE}/utils/travis-run.sh"
+
     SHORT_NS=$(echo $NAMESPACE | sed s/-ng/-foxford/ | sed -E "s/^(.)([[:alpha:]]*)(.*)$/\1\3/")
     FILE_FROM_GITHUB "deploy" "${APPS_SOURCE}/${SHORT_NS}/${PROJECT}/values.yaml"
 
