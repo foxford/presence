@@ -159,6 +159,7 @@ impl AgentList {
             FROM agent_session
             WHERE
                 classroom_id = $1::uuid
+                AND outdated = false
             LIMIT $2
             OFFSET $3
             "#,
@@ -199,6 +200,7 @@ impl<'a> AgentCounter<'a> {
             FROM agent_session
             WHERE
                 classroom_id = ANY ($1)
+                AND outdated = false
             GROUP BY classroom_id
             "#,
             self.classroom_ids as &[ClassroomId]

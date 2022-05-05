@@ -124,6 +124,17 @@ mod tests {
             .expect("Failed to insert first agent session");
 
             agent_session::InsertQuery::new(
+                agent_1.agent_id(),
+                classroom_id,
+                replica.clone(),
+                OffsetDateTime::now_utc(),
+            )
+            .outdated(true)
+            .execute(&mut conn)
+            .await
+            .expect("Failed to insert first agent session");
+
+            agent_session::InsertQuery::new(
                 agent_2.agent_id(),
                 classroom_id,
                 replica,

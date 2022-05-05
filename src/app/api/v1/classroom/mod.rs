@@ -139,6 +139,17 @@ mod tests {
             )
             .execute(&mut conn)
             .await
+            .expect("Failed to insert an agent session");
+
+            agent_session::InsertQuery::new(
+                agent.agent_id(),
+                classroom_id,
+                "replica".to_string(),
+                OffsetDateTime::now_utc(),
+            )
+            .outdated(true)
+            .execute(&mut conn)
+            .await
             .expect("Failed to insert an agent session")
         };
 
