@@ -10,8 +10,7 @@ use crate::{
     db::agent_session,
 };
 use anyhow::Context;
-use axum::{body, extract::Extension, Json};
-use http::Response;
+use axum::{extract::Extension, response::IntoResponse, Json};
 use serde_derive::Deserialize;
 use svc_agent::AgentId;
 use svc_authn::Authenticable;
@@ -60,16 +59,7 @@ async fn do_count_agents<S: State>(
         .context("Failed to count agents")
         .error(ErrorKind::DbQueryFailed)?;
 
-    let body = serde_json::to_string(&agents_count)
-        .context("Failed to serialize agents count")
-        .error(ErrorKind::SerializationFailed)?;
-
-    let resp = Response::builder()
-        .body(body::boxed(body::Full::from(body)))
-        .context("Failed to build response for agents count")
-        .error(ErrorKind::ResponseBuildFailed)?;
-
-    Ok(resp)
+    Ok(Json(agents_count).into_response())
 }
 
 #[cfg(test)]

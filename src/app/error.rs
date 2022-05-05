@@ -19,8 +19,6 @@ struct ErrorKindProperties {
 pub enum ErrorKind {
     DbConnAcquisitionFailed,
     DbQueryFailed,
-    SerializationFailed,
-    ResponseBuildFailed,
     AccessDenied,
     AuthorizationFailed,
 }
@@ -52,18 +50,6 @@ impl From<ErrorKind> for ErrorKindProperties {
                 status: StatusCode::UNPROCESSABLE_ENTITY,
                 kind: "database_query_failed",
                 title: "Database query failed",
-                _is_notify_sentry: true,
-            },
-            ErrorKind::SerializationFailed => ErrorKindProperties {
-                status: StatusCode::UNPROCESSABLE_ENTITY,
-                kind: "serialization_failed",
-                title: "Serialization failed",
-                _is_notify_sentry: true,
-            },
-            ErrorKind::ResponseBuildFailed => ErrorKindProperties {
-                status: StatusCode::UNPROCESSABLE_ENTITY,
-                kind: "response_build_failed",
-                title: "Response build failed",
                 _is_notify_sentry: true,
             },
             ErrorKind::AccessDenied => ErrorKindProperties {
