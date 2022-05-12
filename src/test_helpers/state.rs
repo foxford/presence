@@ -31,10 +31,14 @@ impl TestState {
         Self {
             config: Config {
                 id: AccountId::new("presence", SVC_AUDIENCE),
-                listener_address: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8080),
+                listener_address: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 3000),
                 metrics_listener_address: SocketAddr::new(
                     IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
-                    8081,
+                    3001,
+                ),
+                internal_listener_address: SocketAddr::new(
+                    IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
+                    3002,
                 ),
                 sentry: None,
                 authn: Default::default(),
