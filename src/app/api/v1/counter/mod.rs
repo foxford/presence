@@ -129,7 +129,6 @@ mod tests {
                 replica.clone(),
                 OffsetDateTime::now_utc(),
             )
-            .outdated(true)
             .execute(&mut conn)
             .await
             .expect("Failed to insert first agent session");

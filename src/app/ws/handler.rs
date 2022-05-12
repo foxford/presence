@@ -348,16 +348,6 @@ async fn create_agent_session<S: State>(
             Err(ConnectError::DbQueryFailed)
         }
         InsertResult::UniqIdsConstraintError => {
-            // Set previous agent session as outdated
-            if let Err(err) =
-                agent_session::UpdateOutdatedQuery::by_agent_and_classroom(agent_id, classroom_id)
-                    .outdated(true)
-                    .execute(&mut conn)
-                    .await
-            {
-                error!(error = %err, "Failed to set agent session as outdated");
-                return Err(ConnectError::DbQueryFailed);
-            }
 
             // Attempt to create a new agent session again
             return match insert_query.execute(&mut conn).await {

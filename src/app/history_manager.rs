@@ -133,7 +133,6 @@ mod tests {
                     REPLICA_ID.to_string(),
                     OffsetDateTime::now_utc(),
                 )
-                .outdated(true)
                 .execute(&mut conn)
                 .await
                 .expect("Failed to insert first agent session");
@@ -222,7 +221,6 @@ mod tests {
                     REPLICA_ID.to_string(),
                     OffsetDateTime::now_utc(),
                 )
-                .outdated(true)
                 .execute(&mut conn)
                 .await
                 .expect("Failed to insert second agent session");

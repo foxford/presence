@@ -21,7 +21,6 @@ pub struct InsertQuery<'a> {
     classroom_id: ClassroomId,
     replica_id: String,
     started_at: OffsetDateTime,
-    outdated: bool,
 }
 
 pub enum InsertResult {
@@ -57,14 +56,7 @@ impl<'a> InsertQuery<'a> {
             classroom_id,
             replica_id,
             started_at,
-            outdated: false,
         }
-    }
-
-    #[cfg(test)]
-    pub fn outdated(mut self, value: bool) -> Self {
-        self.outdated = value;
-        self
     }
 
     pub async fn execute(&self, conn: &mut PgConnection) -> InsertResult {
@@ -72,8 +64,8 @@ impl<'a> InsertQuery<'a> {
             AgentSession,
             r#"
             INSERT INTO agent_session
-                (agent_id, classroom_id, replica_id, started_at, outdated)
-            VALUES ($1, $2, $3, $4, $5)
+                (agent_id, classroom_id, replica_id, started_at)
+            VALUES ($1, $2, $3, $4)
             RETURNING
                 id AS "id: SessionId",
                 agent_id AS "agent_id: AgentId",
@@ -85,14 +77,13 @@ impl<'a> InsertQuery<'a> {
             self.classroom_id as ClassroomId,
             self.replica_id,
             self.started_at,
-            self.outdated,
         );
 
         match query.fetch_one(conn).await {
             Ok(agent_session) => InsertResult::Ok(agent_session),
             Err(sqlx::Error::Database(err)) => {
                 if let Some(constraint) = err.constraint() {
-                    if constraint == "uniq_classroom_id_agent_id_outdated" {
+                    if constraint == "uniq_classroom_id_agent_id" {
                         return InsertResult::UniqIdsConstraintError;
                     }
                 }
@@ -159,7 +150,6 @@ impl AgentList {
             FROM agent_session
             WHERE
                 classroom_id = $1::uuid
-                AND outdated = false
             LIMIT $2
             OFFSET $3
             "#,
@@ -200,7 +190,6 @@ impl<'a> AgentCounter<'a> {
             FROM agent_session
             WHERE
                 classroom_id = ANY ($1)
-                AND outdated = false
             GROUP BY classroom_id
             "#,
             self.classroom_ids as &[ClassroomId]
@@ -214,82 +203,6 @@ impl<'a> AgentCounter<'a> {
             .collect::<HashMap<_, _>>();
 
         Ok(result)
-    }
-}
-
-pub struct FindOutdatedQuery<'a> {
-    replica_id: &'a str,
-    outdated: bool,
-}
-
-impl<'a> FindOutdatedQuery<'a> {
-    pub fn by_replica(replica_id: &'a str) -> Self {
-        Self {
-            replica_id,
-            outdated: false,
-        }
-    }
-
-    pub fn outdated(mut self, value: bool) -> Self {
-        self.outdated = value;
-        self
-    }
-
-    pub async fn execute(&self, conn: &mut PgConnection) -> sqlx::Result<Vec<SessionKey>> {
-        sqlx::query_as!(
-            SessionKey,
-            r#"
-            SELECT
-                agent_id AS "agent_id: AgentId",
-                classroom_id AS "classroom_id: ClassroomId"
-            FROM agent_session
-            WHERE
-                replica_id = $1
-                AND outdated = $2
-            "#,
-            self.replica_id,
-            self.outdated
-        )
-        .fetch_all(conn)
-        .await
-    }
-}
-
-pub struct UpdateOutdatedQuery<'a> {
-    agent_id: &'a AgentId,
-    classroom_id: ClassroomId,
-    outdated: bool,
-}
-
-impl<'a> UpdateOutdatedQuery<'a> {
-    pub fn by_agent_and_classroom(agent_id: &'a AgentId, classroom_id: ClassroomId) -> Self {
-        Self {
-            agent_id,
-            classroom_id,
-            outdated: false,
-        }
-    }
-
-    pub fn outdated(mut self, value: bool) -> Self {
-        self.outdated = value;
-        self
-    }
-
-    pub async fn execute(&self, conn: &mut PgConnection) -> sqlx::Result<PgQueryResult> {
-        sqlx::query!(
-            r#"
-            UPDATE agent_session
-            SET outdated = $1
-            WHERE
-                agent_id = $2
-                AND classroom_id = $3
-            "#,
-            self.outdated,
-            self.agent_id as &AgentId,
-            self.classroom_id as ClassroomId
-        )
-        .execute(conn)
-        .await
     }
 }
 
