@@ -1,5 +1,6 @@
-use ::tracing::info;
+use ::tracing::{error, info};
 use anyhow::Result;
+use std::process;
 
 mod app;
 mod authz;
@@ -27,5 +28,11 @@ async fn main() -> Result<()> {
 
     let db = db::new_pool().await;
     let authz_cache = authz::new_cache();
-    app::run(db, authz_cache).await
+
+    if let Err(e) = app::run(db, authz_cache).await {
+        error!(error = %e, "Failed to launch presence");
+        process::exit(1);
+    }
+
+    Ok(())
 }

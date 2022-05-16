@@ -14,16 +14,22 @@ use tracing::{error, info};
 mod api;
 mod error;
 mod history_manager;
-pub mod nats;
+mod local_ip;
+mod replica;
 mod router;
 mod ws;
 
 pub mod metrics;
+pub mod nats;
 pub mod session_manager;
 pub mod state;
 
 pub async fn run(db: PgPool, authz_cache: Option<AuthzCache>) -> Result<()> {
-    let replica_id = var("APP_AGENT_LABEL").expect("APP_AGENT_LABEL must be specified");
+    let replica_label = var("APP_AGENT_LABEL").expect("APP_AGENT_LABEL must be specified");
+    let replica_id = replica::register(&db, replica_label)
+        .await
+        .context("Failed to register replica")?;
+    info!("Replica successfully registered: {:?}", replica_id);
 
     let config = crate::config::load().context("Failed to load config")?;
     info!("App config: {:?}", config);
@@ -45,7 +51,7 @@ pub async fn run(db: PgPool, authz_cache: Option<AuthzCache>) -> Result<()> {
 
     let state = AppState::new(
         config.clone(),
-        db,
+        db.clone(),
         authz,
         replica_id.clone(),
         cmd_tx,
@@ -53,22 +59,24 @@ pub async fn run(db: PgPool, authz_cache: Option<AuthzCache>) -> Result<()> {
         Metrics::new(),
     );
 
-    // Keeps all active sessions on a replica
-    let sessions = SessionMap::new();
-
-    let router = router::new(state.clone(), config.authn.clone());
-    let internal_router = router::new_internal(sessions.clone());
-
     // Move hanging sessions from last time to history
-    if let Err(e) = history_manager::move_all_sessions(state.clone(), &replica_id).await {
-        error!(error = %e, "Failed to move all sessions to history");
-    }
+    history_manager::move_all_sessions(state.clone(), replica_id.clone())
+        .await
+        .context("Failed to move all sessions to history")?;
 
     let metrics_server = svc_utils::metrics::MetricsServer::new(config.metrics_listener_address);
 
     // For graceful shutdown
     let (shutdown_tx, shutdown_rx) = watch::channel(());
 
+    // Keeps all active sessions on a replica
+    let sessions = SessionMap::new();
+    let session_manager = session_manager::run(sessions.clone(), cmd_rx, shutdown_rx.clone());
+
+    let router = router::new(state.clone(), config.authn.clone());
+    let internal_router = router::new_internal(sessions);
+
+    // Public API
     let mut shutdown_server_rx = shutdown_rx.clone();
     let server = tokio::spawn(
         axum::Server::bind(&config.listener_address)
@@ -78,6 +86,7 @@ pub async fn run(db: PgPool, authz_cache: Option<AuthzCache>) -> Result<()> {
             }),
     );
 
+    // Internal API
     let mut shutdown_server_rx = shutdown_rx.clone();
     let internal_server = tokio::spawn(
         axum::Server::bind(&config.internal_listener_address)
@@ -87,8 +96,6 @@ pub async fn run(db: PgPool, authz_cache: Option<AuthzCache>) -> Result<()> {
             }),
     );
 
-    let session_manager = session_manager::run(sessions, cmd_rx, shutdown_rx);
-
     // Waiting for signals for graceful shutdown
     let mut signals_stream = signal_hook_tokio::Signals::new(TERM_SIGNALS)?.fuse();
     let signals = signals_stream.next();
@@ -97,11 +104,11 @@ pub async fn run(db: PgPool, authz_cache: Option<AuthzCache>) -> Result<()> {
     shutdown_tx.send(()).ok();
 
     // Move hanging sessions to history
-    if let Err(e) = history_manager::move_all_sessions(state.clone(), &replica_id).await {
+    if let Err(e) = history_manager::move_all_sessions(state.clone(), replica_id.clone()).await {
         error!(error = %e, "Failed to move all sessions to history");
     }
 
-    // Make sure server and session manager are stopped
+    // Make sure server and session manager, and others are stopped
     if let Err(err) = server.await {
         error!(error = %err, "Failed to await server completion");
     }
@@ -112,6 +119,10 @@ pub async fn run(db: PgPool, authz_cache: Option<AuthzCache>) -> Result<()> {
 
     if let Err(err) = session_manager.await {
         error!(error = %err, "Failed to await session manager completion");
+    }
+
+    if let Err(err) = replica::terminate(&db, replica_id).await {
+        error!(error = %err, "Failed to terminate replica");
     }
 
     if let Err(err) = nats_client.shutdown().await {

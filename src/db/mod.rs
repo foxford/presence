@@ -3,6 +3,7 @@ use std::{env::var, time::Duration};
 
 pub mod agent_session;
 pub mod agent_session_history;
+pub mod replica;
 
 const DEFAULT_POOL_SIZE: u32 = 5;
 const DEFAULT_POOL_IDLE_SIZE: u32 = 1;

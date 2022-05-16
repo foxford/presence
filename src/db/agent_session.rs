@@ -3,20 +3,21 @@ use serde_derive::Serialize;
 use sqlx::{postgres::PgQueryResult, types::time::OffsetDateTime, Error, PgConnection};
 use std::collections::HashMap;
 use svc_agent::AgentId;
+use uuid::Uuid;
 
 #[derive(Clone, Debug, sqlx::FromRow)]
 pub struct AgentSession {
     pub id: SessionId,
     pub agent_id: AgentId,
     pub classroom_id: ClassroomId,
-    pub replica_id: String,
+    pub replica_id: Uuid,
     pub started_at: OffsetDateTime,
 }
 
 pub struct InsertQuery<'a> {
     agent_id: &'a AgentId,
     classroom_id: ClassroomId,
-    replica_id: String,
+    replica_id: Uuid,
     started_at: OffsetDateTime,
 }
 
@@ -45,7 +46,7 @@ impl<'a> InsertQuery<'a> {
     pub fn new(
         agent_id: &'a AgentId,
         classroom_id: ClassroomId,
-        replica_id: String,
+        replica_id: Uuid,
         started_at: OffsetDateTime,
     ) -> Self {
         Self {
@@ -94,11 +95,11 @@ impl<'a> InsertQuery<'a> {
 
 pub struct DeleteQuery<'a> {
     ids: &'a [SessionId],
-    replica_id: &'a str,
+    replica_id: Uuid,
 }
 
 impl<'a> DeleteQuery<'a> {
-    pub fn by_replica(replica_id: &'a str, ids: &'a [SessionId]) -> Self {
+    pub fn by_replica(replica_id: Uuid, ids: &'a [SessionId]) -> Self {
         Self { ids, replica_id }
     }
 

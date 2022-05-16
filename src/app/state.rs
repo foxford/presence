@@ -13,12 +13,13 @@ use sqlx::{pool::PoolConnection, PgPool, Postgres};
 use std::sync::Arc;
 use svc_authz::ClientMap as Authz;
 use tokio::sync::{mpsc::UnboundedSender, oneshot};
+use uuid::Uuid;
 
 #[async_trait]
 pub trait State: Send + Sync + Clone + 'static {
     fn config(&self) -> &Config;
     fn authz(&self) -> &Authz;
-    fn replica_id(&self) -> String;
+    fn replica_id(&self) -> Uuid;
     fn metrics(&self) -> Metrics;
     fn register_session(
         &self,
@@ -39,7 +40,7 @@ struct InnerState {
     config: Config,
     db_pool: PgPool,
     authz: Authz,
-    replica_id: String,
+    replica_id: Uuid,
     cmd_sender: UnboundedSender<Command>,
     nats_client: Box<dyn NatsClient>,
     metrics: Metrics,
@@ -50,7 +51,7 @@ impl AppState {
         config: Config,
         db_pool: PgPool,
         authz: Authz,
-        replica_id: String,
+        replica_id: Uuid,
         cmd_sender: UnboundedSender<Command>,
         nats_client: Client,
         metrics: Metrics,
@@ -79,7 +80,7 @@ impl State for AppState {
         &self.inner.authz
     }
 
-    fn replica_id(&self) -> String {
+    fn replica_id(&self) -> Uuid {
         self.inner.replica_id.clone()
     }
 

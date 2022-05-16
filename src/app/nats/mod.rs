@@ -56,7 +56,12 @@ impl Client {
         let (tx, mut rx) = mpsc::unbounded_channel::<Subscribe>();
         let (shutdown_tx, mut shutdown_rx) = mpsc::channel::<oneshot::Sender<()>>(1);
 
-        let connection = nats::Options::with_credentials("nats.creds").connect(nats_url)?;
+        let connection = nats::Options::with_credentials("nats.creds")
+            .error_callback(|e| {
+                error!(error = ?e, "Nats server error");
+            })
+            .connect(nats_url)?;
+
         info!("Connected to nats");
         let jetstream = nats::jetstream::new(connection);
 
