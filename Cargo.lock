@@ -1538,6 +1538,7 @@ dependencies = [
  "nats",
  "once_cell",
  "prometheus",
+ "reqwest",
  "sentry",
  "serde",
  "serde_derive",

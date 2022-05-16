@@ -1,4 +1,6 @@
+use crate::app::replica;
 use crate::{
+    app,
     app::{
         history_manager,
         metrics::AuthzMeasure,
@@ -133,12 +135,13 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
                         .and_then(|s| AgentId::from_str(s).ok());
 
                     match (label, sender_id) {
-                        (Some("agent.replaced"), Some(sender_id)) => {
-                            // Send the `agent.replaced` event only for yourself
-                            if session_key.agent_id != sender_id {
-                                continue;
-                            }
-                        }
+                        // TODO: Remove code
+                        // (Some("agent.replaced"), Some(sender_id)) => {
+                        //     // Send the `agent.replaced` event only for yourself
+                        //     if session_key.agent_id != sender_id {
+                        //         continue;
+                        //     }
+                        // }
                         (_, Some(sender_id)) => {
                             // Don't send events to yourself
                             if session_key.agent_id == sender_id {
@@ -348,15 +351,46 @@ async fn create_agent_session<S: State>(
             Err(ConnectError::DbQueryFailed)
         }
         InsertResult::UniqIdsConstraintError => {
+            use app::api::internal::session::Response as DeleteResponse;
+            match replica::close_connection(state.clone(), session_key).await {
+                Ok(resp) => match resp {
+                    DeleteResponse::DeleteSuccess => {
+                        match agent_session::UpdateReplicaQuery::new(
+                            agent_id.clone(),
+                            classroom_id,
+                            state.replica_id(),
+                        )
+                        .execute(&mut conn)
+                        .await
+                        {
+                            Ok(session) => {
+                                let session_key = SessionKey::new(agent_id.clone(), classroom_id);
+                                let event = Event::new(Label::AgentEnter).payload(agent_id.clone());
+                                if let Err(e) =
+                                    state.nats_client().publish_event(session_key, event)
+                                {
+                                    error!(error = %e, "Failed to send agent.enter notification");
+                                    return Err(ConnectError::MessagingFailed);
+                                }
 
-            // Attempt to create a new agent session again
-            return match insert_query.execute(&mut conn).await {
-                InsertResult::Ok(agent_session) => Ok(agent_session.id),
-                _ => {
-                    error!("Failed to create an agent session");
-                    Err(ConnectError::DbQueryFailed)
+                                Ok(session.id)
+                            }
+                            Err(e) => {
+                                error!(error = %e, "Failed to update replica_id");
+                                Err(ConnectError::CloseOldConnectionFailed)
+                            }
+                        }
+                    }
+                    DeleteResponse::DeleteFailure(r) => {
+                        error!(reason = %r, "Failed to close connection on another replica");
+                        Err(ConnectError::CloseOldConnectionFailed)
+                    }
+                },
+                Err(e) => {
+                    error!(error = %e, "Failed to close connection on another replica");
+                    Err(ConnectError::CloseOldConnectionFailed)
                 }
-            };
+            }
         }
     }
 }

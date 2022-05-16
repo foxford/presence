@@ -1,5 +1,8 @@
+use crate::app::api::internal::session::{DeletePayload, Response};
 use crate::app::local_ip;
+use crate::app::state::State;
 use crate::db;
+use crate::session::SessionKey;
 use anyhow::{Context, Result};
 use sqlx::PgPool;
 use uuid::Uuid;
@@ -35,4 +38,33 @@ pub async fn terminate(db_pool: &PgPool, id: Uuid) -> Result<()> {
         .context("Failed to delete replica")?;
 
     Ok(())
+}
+
+pub async fn close_connection<S: State>(state: S, session_key: SessionKey) -> Result<Response> {
+    let mut conn = state.get_conn().await?;
+
+    let replica_ip = db::replica::GetIpQuery::new(state.replica_id())
+        .execute(&mut conn)
+        .await
+        .context("Failed to get replica ip")?;
+
+    let url = format!(
+        "http://{}:{}/api/internal/session",
+        replica_ip.ip.ip(),
+        3002 // state.config().internal_listener_address.port()
+    );
+
+    let payload = DeletePayload { session_key };
+
+    let resp = reqwest::Client::new()
+        .delete(url)
+        .json(&payload)
+        .send()
+        .await?;
+
+    dbg!(&resp);
+
+    let resp = resp.json::<Response>().await?;
+
+    Ok(resp)
 }

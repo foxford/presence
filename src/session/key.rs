@@ -1,9 +1,9 @@
 use crate::classroom::ClassroomId;
-use serde_derive::Deserialize;
+use serde_derive::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
 use svc_agent::AgentId;
 
-#[derive(Hash, Eq, PartialEq, Clone, sqlx::Type, Debug, Deserialize)]
+#[derive(Hash, Eq, PartialEq, Clone, sqlx::Type, Debug, Deserialize, Serialize)]
 pub struct SessionKey {
     pub agent_id: AgentId,
     pub classroom_id: ClassroomId,

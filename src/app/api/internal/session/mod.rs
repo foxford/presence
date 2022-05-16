@@ -9,24 +9,32 @@ use anyhow::Context;
 use axum::{body, response::IntoResponse, Extension, Json};
 use http::StatusCode;
 use serde_derive::{Deserialize, Serialize};
+use std::fmt;
+use std::fmt::Display;
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 pub struct DeletePayload {
-    session_key: SessionKey,
+    pub session_key: SessionKey,
 }
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize, Debug)]
 #[serde(tag = "type", content = "payload", rename_all = "snake_case")]
-enum Response {
+pub enum Response {
     DeleteSuccess,
     DeleteFailure(Reason),
 }
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize, Debug)]
 #[serde(rename_all = "snake_case")]
-enum Reason {
+pub enum Reason {
     NotFound,
     FailedToSendMessage,
+}
+
+impl Display for Reason {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self)
+    }
 }
 
 pub async fn delete(

@@ -60,3 +60,31 @@ impl DeleteQuery {
         .await
     }
 }
+
+pub struct ReplicaIp {
+    pub ip: IpNetwork,
+}
+
+pub struct GetIpQuery {
+    id: Uuid,
+}
+
+impl GetIpQuery {
+    pub fn new(id: Uuid) -> Self {
+        Self { id }
+    }
+
+    pub async fn execute(&self, conn: &mut PgConnection) -> sqlx::Result<ReplicaIp> {
+        sqlx::query_as!(
+            ReplicaIp,
+            r#"
+            SELECT ip
+            FROM replica
+            WHERE id = $1
+            "#,
+            self.id
+        )
+        .fetch_one(conn)
+        .await
+    }
+}

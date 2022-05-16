@@ -5,9 +5,10 @@ use crate::{
 };
 use anyhow::{anyhow, Result};
 use sqlx::Connection;
+use uuid::Uuid;
 
 /// Moves all session from the `agent_session` table in `agent_session_history`.
-pub async fn move_all_sessions<S: State>(state: S, replica_id: &str) -> Result<()> {
+pub async fn move_all_sessions<S: State>(state: S, replica_id: Uuid) -> Result<()> {
     let mut conn = state
         .get_conn()
         .await
@@ -88,7 +89,7 @@ pub async fn move_single_session<S: State>(state: S, session_id: SessionId) -> R
         }
     }
 
-    agent_session::DeleteQuery::by_replica(&state.replica_id(), &[session.id])
+    agent_session::DeleteQuery::by_replica(state.replica_id(), &[session.id])
         .execute(&mut tx)
         .await
         .map_err(|e| anyhow!("Failed to delete agent_session: {:?}", e))?;

@@ -139,6 +139,7 @@ impl NatsClient for Client {
         let subject = format!("classrooms.{}.presence", session_key.classroom_id);
         let mut headers = HeaderMap::new();
         headers.insert(PRESENCE_SENDER_AGENT_ID, session_key.agent_id.to_string());
+        // TODO: Remove event label
         headers.insert(PRESENCE_EVENT_LABEL, event.label.to_string());
 
         let msg = Message::new(&subject, None, data, Some(headers));

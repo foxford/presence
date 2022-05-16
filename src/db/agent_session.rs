@@ -234,3 +234,41 @@ impl GetQuery {
         .await
     }
 }
+
+pub struct UpdateReplicaQuery {
+    agent_id: AgentId,
+    classroom_id: ClassroomId,
+    replica_id: Uuid,
+}
+
+pub struct AgentSessionId {
+    pub id: SessionId,
+}
+
+impl UpdateReplicaQuery {
+    pub fn new(agent_id: AgentId, classroom_id: ClassroomId, replica_id: Uuid) -> Self {
+        Self {
+            agent_id,
+            classroom_id,
+            replica_id,
+        }
+    }
+
+    pub async fn execute(&self, conn: &mut PgConnection) -> sqlx::Result<AgentSessionId> {
+        sqlx::query_as!(
+            AgentSessionId,
+            r#"
+            UPDATE agent_session
+            SET replica_id = $3
+            WHERE agent_id = $1
+                AND classroom_id = $2
+            RETURNING id AS "id: SessionId"
+            "#,
+            &self.agent_id as &AgentId,
+            &self.classroom_id as &ClassroomId,
+            &self.replica_id
+        )
+        .fetch_one(conn)
+        .await
+    }
+}
