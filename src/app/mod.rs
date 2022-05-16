@@ -1,6 +1,7 @@
 use crate::{
     app::{metrics::Metrics, state::AppState},
     authz::AuthzCache,
+    session::SessionMap,
 };
 use anyhow::{Context, Result};
 use futures_util::StreamExt;
@@ -51,7 +52,12 @@ pub async fn run(db: PgPool, authz_cache: Option<AuthzCache>) -> Result<()> {
         nats_client.clone(),
         Metrics::new(),
     );
+
+    // Keeps all active sessions on a replica
+    let sessions = SessionMap::new();
+
     let router = router::new(state.clone(), config.authn.clone());
+    let internal_router = router::new_internal(sessions.clone());
 
     // Move hanging sessions from last time to history
     if let Err(e) = history_manager::move_all_sessions(state.clone(), &replica_id).await {
@@ -72,7 +78,16 @@ pub async fn run(db: PgPool, authz_cache: Option<AuthzCache>) -> Result<()> {
             }),
     );
 
-    let session_manager = session_manager::run(state.clone(), cmd_rx, shutdown_rx);
+    let mut shutdown_server_rx = shutdown_rx.clone();
+    let internal_server = tokio::spawn(
+        axum::Server::bind(&config.internal_listener_address)
+            .serve(internal_router.into_make_service())
+            .with_graceful_shutdown(async move {
+                shutdown_server_rx.changed().await.ok();
+            }),
+    );
+
+    let session_manager = session_manager::run(sessions, cmd_rx, shutdown_rx);
 
     // Waiting for signals for graceful shutdown
     let mut signals_stream = signal_hook_tokio::Signals::new(TERM_SIGNALS)?.fuse();
@@ -89,6 +104,10 @@ pub async fn run(db: PgPool, authz_cache: Option<AuthzCache>) -> Result<()> {
     // Make sure server and session manager are stopped
     if let Err(err) = server.await {
         error!(error = %err, "Failed to await server completion");
+    }
+
+    if let Err(err) = internal_server.await {
+        error!(error = %err, "Failed to await internal_server completion");
     }
 
     if let Err(err) = session_manager.await {

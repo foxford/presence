@@ -21,6 +21,8 @@ pub enum ErrorKind {
     DbQueryFailed,
     AccessDenied,
     AuthorizationFailed,
+    SerializationFailed,
+    ResponseBuildFailed,
 }
 
 impl ErrorKind {
@@ -63,6 +65,18 @@ impl From<ErrorKind> for ErrorKindProperties {
                 kind: "authorization_failed",
                 title: "Authorization failed",
                 _is_notify_sentry: false,
+            },
+            ErrorKind::SerializationFailed => ErrorKindProperties {
+                status: StatusCode::UNPROCESSABLE_ENTITY,
+                kind: "serialization_failed",
+                title: "Serialization failed",
+                _is_notify_sentry: true,
+            },
+            ErrorKind::ResponseBuildFailed => ErrorKindProperties {
+                status: StatusCode::UNPROCESSABLE_ENTITY,
+                kind: "response_build_failed",
+                title: "Response build failed",
+                _is_notify_sentry: true,
             },
         }
     }

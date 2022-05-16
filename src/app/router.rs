@@ -1,11 +1,14 @@
-use crate::app::{
-    api::v1,
-    state::{AppState, State},
-    ws,
+use crate::{
+    app::{
+        api::{internal, v1},
+        state::{AppState, State},
+        ws,
+    },
+    session::SessionMap,
 };
 use axum::{
     extract::Extension,
-    routing::{get, post},
+    routing::{delete, get, post},
     Router,
 };
 use std::sync::Arc;
@@ -36,4 +39,11 @@ fn api_router() -> Router {
 
 fn ws_router() -> Router {
     Router::new().route("/ws", get(ws::handler::<AppState>))
+}
+
+pub fn new_internal(sessions: SessionMap) -> Router {
+    Router::new()
+        .route("/api/internal/session", delete(internal::session::delete))
+        .layer(Extension(sessions))
+        .layer(LogLayer::new())
 }

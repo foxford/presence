@@ -1,7 +1,4 @@
-use crate::{
-    classroom::ClassroomId,
-    session::{SessionId, SessionKey},
-};
+use crate::{classroom::ClassroomId, session::SessionId};
 use serde_derive::Serialize;
 use sqlx::{postgres::PgQueryResult, types::time::OffsetDateTime, Error, PgConnection};
 use std::collections::HashMap;

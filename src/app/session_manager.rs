@@ -1,12 +1,9 @@
-use crate::{app::state::State, db, session::SessionId, session::SessionKey};
-use anyhow::{Context, Result};
-use std::collections::HashMap;
+use crate::session::{SessionId, SessionKey, SessionMap, SessionValue};
 use tokio::{
     sync::{mpsc, oneshot, watch},
     task::JoinHandle,
-    time::{interval, MissedTickBehavior},
 };
-use tracing::error;
+use tracing::info;
 
 #[derive(Debug)]
 pub enum Session {
@@ -17,23 +14,18 @@ pub enum Session {
 
 #[derive(Debug)]
 pub enum Command {
-    Register(SessionKey, (SessionId, oneshot::Sender<()>)),
+    Register(SessionKey, SessionValue),
     Terminate(SessionKey, Option<oneshot::Sender<Session>>),
 }
 
 /// Manages agent sessions by handling incoming commands.
 /// Also, closes old agent sessions.
-pub fn run<S: State>(
-    state: S,
+pub fn run(
+    sessions: SessionMap,
     mut cmd_rx: mpsc::UnboundedReceiver<Command>,
     mut shutdown_rx: watch::Receiver<()>,
 ) -> JoinHandle<()> {
     tokio::task::spawn(async move {
-        let mut check_interval = interval(state.config().websocket.check_old_connection_interval);
-        check_interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
-
-        let mut sessions = HashMap::<SessionKey, (SessionId, oneshot::Sender<()>)>::new();
-
         loop {
             tokio::select! {
                 Some(cmd) = cmd_rx.recv() => {
