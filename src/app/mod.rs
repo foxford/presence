@@ -26,9 +26,7 @@ pub mod state;
 
 pub async fn run(db: PgPool, authz_cache: Option<AuthzCache>) -> Result<()> {
     let replica_label = var("APP_AGENT_LABEL").expect("APP_AGENT_LABEL must be specified");
-    let replica_id = replica::register(&db, replica_label)
-        .await
-        .context("Failed to register replica")?;
+    let replica_id = replica::register(&db, replica_label).await?;
     info!("Replica successfully registered: {:?}", replica_id);
 
     let config = crate::config::load().context("Failed to load config")?;

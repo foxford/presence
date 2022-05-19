@@ -5,10 +5,12 @@ use crate::db;
 use crate::session::SessionKey;
 use anyhow::{Context, Result};
 use sqlx::PgPool;
+use tracing::info;
 use uuid::Uuid;
 
 pub async fn register(db_pool: &PgPool, label: String) -> Result<Uuid> {
     let ip = local_ip::get_local_ip().context("Failed to get local ip")?;
+    info!("Replica IP: {}", ip);
 
     let mut conn = db_pool
         .acquire()
