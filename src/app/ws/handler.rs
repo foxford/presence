@@ -4,7 +4,7 @@ use crate::{
     app::{
         history_manager,
         metrics::AuthzMeasure,
-        nats::{PRESENCE_EVENT_LABEL, PRESENCE_SENDER_AGENT_ID},
+        nats::PRESENCE_SENDER_AGENT_ID,
         session_manager::Session,
         state::State,
         ws::{
@@ -125,30 +125,13 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
     loop {
         tokio::select! {
             Ok(msg) = nats_rx.recv() => {
-                if let Some(headers) = msg.headers {
-                    let label = headers
-                        .get(PRESENCE_EVENT_LABEL)
-                        .map(|l| l.as_str());
-
-                    let sender_id = headers
-                        .get(PRESENCE_SENDER_AGENT_ID)
-                        .and_then(|s| AgentId::from_str(s).ok());
-
-                    match (label, sender_id) {
-                        // TODO: Remove code
-                        // (Some("agent.replaced"), Some(sender_id)) => {
-                        //     // Send the `agent.replaced` event only for yourself
-                        //     if session_key.agent_id != sender_id {
-                        //         continue;
-                        //     }
-                        // }
-                        (_, Some(sender_id)) => {
-                            // Don't send events to yourself
-                            if session_key.agent_id == sender_id {
-                                continue;
-                            }
-                        }
-                        _ => {}
+                if let Some(sender_id) = msg.headers.and_then(|h| {
+                    h.get(PRESENCE_SENDER_AGENT_ID)
+                        .and_then(|s| AgentId::from_str(s).ok())
+                }) {
+                    // Don't send events to yourself
+                    if session_key.agent_id == sender_id {
+                        continue;
                     }
                 }
 

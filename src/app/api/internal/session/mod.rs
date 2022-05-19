@@ -10,7 +10,6 @@ use axum::{body, response::IntoResponse, Extension, Json};
 use http::StatusCode;
 use serde_derive::{Deserialize, Serialize};
 use std::fmt;
-use std::fmt::Display;
 
 #[derive(Deserialize, Serialize)]
 pub struct DeletePayload {
@@ -31,7 +30,7 @@ pub enum Reason {
     FailedToSendMessage,
 }
 
-impl Display for Reason {
+impl fmt::Display for Reason {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self)
     }

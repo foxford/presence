@@ -3,4 +3,3 @@ ALTER TABLE agent_session
     ADD replica_id uuid NOT NULL,
     ADD CONSTRAINT agent_session_replica_id_fk
         FOREIGN KEY (replica_id) REFERENCES replica;
-

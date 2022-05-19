@@ -6,7 +6,7 @@ use svc_agent::AgentId;
 pub struct Event {
     #[serde(rename = "type")]
     kind: String,
-    pub label: Label,
+    label: Label,
     #[serde(skip_serializing_if = "Option::is_none")]
     payload: Option<Payload>,
 }

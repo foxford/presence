@@ -14,7 +14,7 @@ pub fn get_local_ip() -> Result<IpAddr> {
         let output = ifconfig
             .stdout
             .take()
-            .ok_or(anyhow!("Failed to run ifconfig"))?;
+            .ok_or_else(|| anyhow!("Failed to run ifconfig"))?;
 
         Command::new("xargs")
             .args(["-n1", "ipconfig", "getifaddr"])
@@ -24,7 +24,7 @@ pub fn get_local_ip() -> Result<IpAddr> {
 
     let ip = String::from_utf8(output.stdout).context("Failed to convert stdout to string")?;
     let ip = ip
-        .replace("\n", "")
+        .replace('\n', "")
         .parse::<IpAddr>()
         .context("Failed to parse ip from string")?;
 

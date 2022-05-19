@@ -53,14 +53,14 @@ pub async fn run(db: PgPool, authz_cache: Option<AuthzCache>) -> Result<()> {
         config.clone(),
         db.clone(),
         authz,
-        replica_id.clone(),
+        replica_id,
         cmd_tx,
         nats_client.clone(),
         Metrics::new(),
     );
 
     // Move hanging sessions from last time to history
-    history_manager::move_all_sessions(state.clone(), replica_id.clone())
+    history_manager::move_all_sessions(state.clone(), replica_id)
         .await
         .context("Failed to move all sessions to history")?;
 
@@ -104,7 +104,7 @@ pub async fn run(db: PgPool, authz_cache: Option<AuthzCache>) -> Result<()> {
     shutdown_tx.send(()).ok();
 
     // Move hanging sessions to history
-    if let Err(e) = history_manager::move_all_sessions(state.clone(), replica_id.clone()).await {
+    if let Err(e) = history_manager::move_all_sessions(state.clone(), replica_id).await {
         error!(error = %e, "Failed to move all sessions to history");
     }
 

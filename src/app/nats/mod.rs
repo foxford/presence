@@ -17,7 +17,6 @@ use tokio::{
 };
 use tracing::{error, info, warn};
 
-pub const PRESENCE_EVENT_LABEL: &str = "presence-label";
 pub const PRESENCE_SENDER_AGENT_ID: &str = "presence-sender-agent-id";
 
 #[derive(Debug)]
@@ -139,8 +138,6 @@ impl NatsClient for Client {
         let subject = format!("classrooms.{}.presence", session_key.classroom_id);
         let mut headers = HeaderMap::new();
         headers.insert(PRESENCE_SENDER_AGENT_ID, session_key.agent_id.to_string());
-        // TODO: Remove event label
-        headers.insert(PRESENCE_EVENT_LABEL, event.label.to_string());
 
         let msg = Message::new(&subject, None, data, Some(headers));
         self.jetstream.publish_message(&msg)?;

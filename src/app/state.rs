@@ -81,7 +81,7 @@ impl State for AppState {
     }
 
     fn replica_id(&self) -> Uuid {
-        self.inner.replica_id.clone()
+        self.inner.replica_id
     }
 
     fn metrics(&self) -> Metrics {
