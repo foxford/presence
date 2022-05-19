@@ -82,22 +82,24 @@ mod tests {
     use super::*;
     use crate::{
         classroom::ClassroomId,
-        db::agent_session::{self, Agent},
+        db::{
+            agent_session::{self, Agent},
+            replica,
+        },
         test_helpers::prelude::*,
     };
     use axum::{body::HttpBody, response::IntoResponse};
     use serde_json::Value;
     use sqlx::types::time::OffsetDateTime;
+    use std::net::{IpAddr, Ipv4Addr};
     use uuid::Uuid;
-
-    const REPLICA_ID: &str = "presence_1";
 
     #[tokio::test]
     async fn list_agents_unauthorized() {
         let test_container = TestContainer::new();
         let postgres = test_container.run_postgres();
         let db_pool = TestDb::new(&postgres.connection_string).await;
-        let state = TestState::new(db_pool, TestAuthz::new(), REPLICA_ID);
+        let state = TestState::new(db_pool, TestAuthz::new(), Uuid::new_v4());
         let classroom_id: ClassroomId = Uuid::new_v4().into();
         let agent = TestAgent::new("web", "user1", USR_AUDIENCE);
 
@@ -128,28 +130,30 @@ mod tests {
         let classroom_id: ClassroomId = Uuid::new_v4().into();
         let agent = TestAgent::new("web", "user1", USR_AUDIENCE);
 
-        let _ = {
+        let replica_id = {
             let mut conn = db_pool.get_conn().await;
+
+            let replica_id = replica::InsertQuery::new(
+                "presence-1".into(),
+                IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
+            )
+            .expect("Failed to create insert query for replica")
+            .execute(&mut conn)
+            .await
+            .expect("Failed to insert a replica")
+            .id;
 
             agent_session::InsertQuery::new(
                 agent.agent_id(),
                 classroom_id,
-                "replica".to_string(),
+                replica_id,
                 OffsetDateTime::now_utc(),
             )
             .execute(&mut conn)
             .await
             .expect("Failed to insert an agent session");
 
-            agent_session::InsertQuery::new(
-                agent.agent_id(),
-                classroom_id,
-                "replica".to_string(),
-                OffsetDateTime::now_utc(),
-            )
-            .execute(&mut conn)
-            .await
-            .expect("Failed to insert an agent session")
+            replica_id
         };
 
         let mut authz = TestAuthz::new();
@@ -159,7 +163,7 @@ mod tests {
             "read",
         );
 
-        let state = TestState::new(db_pool, authz, REPLICA_ID);
+        let state = TestState::new(db_pool, authz, replica_id);
 
         let resp = do_list_agents(
             state,

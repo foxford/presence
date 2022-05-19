@@ -431,8 +431,8 @@ mod tests {
 
     mod handle_authn_message {
         use super::*;
-
-        const REPLICA_ID: &str = "presence_1";
+        use crate::db;
+        use std::net::{IpAddr, Ipv4Addr};
 
         #[tokio::test]
         async fn unsupported_request() {
@@ -441,7 +441,7 @@ mod tests {
             let db_pool = TestDb::new(&postgres.connection_string).await;
             let msg = Message::Binary("".into());
             let authn = Arc::new(authn::new());
-            let state = TestState::new(db_pool, TestAuthz::new(), REPLICA_ID);
+            let state = TestState::new(db_pool, TestAuthz::new(), Uuid::new_v4());
 
             let result = handle_authn_message(msg, authn, state)
                 .await
@@ -457,7 +457,7 @@ mod tests {
             let db_pool = TestDb::new(&postgres.connection_string).await;
             let msg = Message::Text("".into());
             let authn = Arc::new(authn::new());
-            let state = TestState::new(db_pool, TestAuthz::new(), REPLICA_ID);
+            let state = TestState::new(db_pool, TestAuthz::new(), Uuid::new_v4());
 
             let result = handle_authn_message(msg, authn, state)
                 .await
@@ -484,7 +484,7 @@ mod tests {
 
             let msg = Message::Text(cmd.to_string());
             let authn = Arc::new(authn::new());
-            let state = TestState::new(db_pool, TestAuthz::new(), REPLICA_ID);
+            let state = TestState::new(db_pool, TestAuthz::new(), Uuid::new_v4());
 
             let result = handle_authn_message(msg, authn, state)
                 .await
@@ -513,7 +513,7 @@ mod tests {
 
             let msg = Message::Text(cmd.to_string());
             let authn = Arc::new(authn::new());
-            let state = TestState::new(db_pool, TestAuthz::new(), REPLICA_ID);
+            let state = TestState::new(db_pool, TestAuthz::new(), Uuid::new_v4());
 
             let result = handle_authn_message(msg, authn, state)
                 .await
@@ -530,6 +530,20 @@ mod tests {
             let classroom_id: ClassroomId = Uuid::new_v4().into();
             let agent = TestAgent::new("http", "user123", USR_AUDIENCE);
             let token = agent.token();
+
+            let replica_id = {
+                let mut conn = db_pool.get_conn().await;
+
+                db::replica::InsertQuery::new(
+                    "presence-1".into(),
+                    IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
+                )
+                .expect("Failed to create insert query for replica")
+                .execute(&mut conn)
+                .await
+                .expect("Failed to insert a replica")
+                .id
+            };
 
             let cmd = json!({
                 "type": "connect_request",
@@ -549,7 +563,7 @@ mod tests {
                 vec!["classrooms", &classroom_id.to_string()],
                 "connect",
             );
-            let state = TestState::new(db_pool, authz, REPLICA_ID);
+            let state = TestState::new(db_pool, authz, replica_id);
 
             let (resp, (_, session_key)) = handle_authn_message(msg, authn, state)
                 .await

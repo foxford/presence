@@ -65,14 +65,17 @@ async fn do_count_agents<S: State>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{classroom::ClassroomId, db::agent_session, test_helpers::prelude::*};
+    use crate::{
+        classroom::ClassroomId,
+        db::{agent_session, replica},
+        test_helpers::prelude::*,
+    };
     use axum::{body::HttpBody, response::IntoResponse};
     use serde_json::Value;
     use sqlx::types::time::OffsetDateTime;
     use std::collections::HashMap;
+    use std::net::{IpAddr, Ipv4Addr};
     use uuid::Uuid;
-
-    const REPLICA_ID: &str = "presence_1";
 
     #[tokio::test]
     async fn count_agents_unauthorized() {
@@ -80,7 +83,7 @@ mod tests {
         let postgres = test_container.run_postgres();
         let db_pool = TestDb::new(&postgres.connection_string).await;
         let classroom_id: ClassroomId = Uuid::new_v4().into();
-        let state = TestState::new(db_pool, TestAuthz::new(), REPLICA_ID);
+        let state = TestState::new(db_pool, TestAuthz::new(), Uuid::new_v4());
         let agent = TestAgent::new("web", "user1", USR_AUDIENCE);
         let payload = CounterPayload {
             classroom_ids: vec![classroom_id],
@@ -109,24 +112,23 @@ mod tests {
         let agent_1 = TestAgent::new("web", "user1", USR_AUDIENCE);
         let agent_2 = TestAgent::new("web", "user2", USR_AUDIENCE);
 
-        let _ = {
+        let replica_id = {
             let mut conn = db_pool.get_conn().await;
-            let replica = "replica_id".to_string();
 
-            agent_session::InsertQuery::new(
-                agent_1.agent_id(),
-                classroom_id,
-                replica.clone(),
-                OffsetDateTime::now_utc(),
+            let replica_id = replica::InsertQuery::new(
+                "presence-1".into(),
+                IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
             )
+            .expect("Failed to create insert query for replica")
             .execute(&mut conn)
             .await
-            .expect("Failed to insert first agent session");
+            .expect("Failed to insert a replica")
+            .id;
 
             agent_session::InsertQuery::new(
                 agent_1.agent_id(),
                 classroom_id,
-                replica.clone(),
+                replica_id,
                 OffsetDateTime::now_utc(),
             )
             .execute(&mut conn)
@@ -136,12 +138,14 @@ mod tests {
             agent_session::InsertQuery::new(
                 agent_2.agent_id(),
                 classroom_id,
-                replica,
+                replica_id,
                 OffsetDateTime::now_utc(),
             )
             .execute(&mut conn)
             .await
             .expect("Failed to insert second agent session");
+
+            replica_id
         };
 
         let agent = TestAgent::new("web", "user4", USR_AUDIENCE);
@@ -150,7 +154,7 @@ mod tests {
         authz.set_audience(SVC_AUDIENCE);
         authz.allow(agent.account_id(), vec!["classrooms"], "read");
 
-        let state = TestState::new(db_pool, authz, REPLICA_ID);
+        let state = TestState::new(db_pool, authz, replica_id);
         let payload = CounterPayload {
             classroom_ids: vec![classroom_id],
         };
