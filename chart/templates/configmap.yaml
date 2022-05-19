@@ -10,6 +10,7 @@ data:
     id = {{ $id | quote }}
     listener_address = "0.0.0.0:{{ get .Values.service.ports "http" }}"
     metrics_listener_address = "0.0.0.0:{{ get .Values.service.ports "metrics" }}"
+    internal_listener_address = "0.0.0.0:{{ get .Values.service.ports "internal" }}"
     {{- $svc_audience := list (include "presence.shortNamespace" $) .Values.svc.audience | compact | join "." }}
     svc_audience = {{ $svc_audience | quote }}
 

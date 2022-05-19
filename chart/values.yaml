@@ -70,6 +70,7 @@ service:
   ports:
     http: 8080
     metrics: 8081
+    internal: 8082
 
 ingress:
   host: foo.bar.example
