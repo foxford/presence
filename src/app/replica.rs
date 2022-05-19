@@ -21,7 +21,7 @@ pub async fn register(db_pool: &PgPool, label: String) -> Result<Uuid> {
     let replica = insert_query
         .execute(&mut conn)
         .await
-        .context("Failed to insert replica")?;
+        .context("Failed to insert a replica")?;
 
     Ok(replica.id)
 }
@@ -51,18 +51,15 @@ pub async fn close_connection<S: State>(state: S, session_key: SessionKey) -> Re
     let url = format!(
         "http://{}:{}/api/internal/session",
         replica_ip.ip.ip(),
-        3002 // state.config().internal_listener_address.port()
+        state.config().internal_listener_address.port()
     );
 
     let payload = DeletePayload { session_key };
-
     let resp = reqwest::Client::new()
         .delete(url)
         .json(&payload)
         .send()
         .await?;
-
-    dbg!(&resp);
 
     let resp = resp.json::<Response>().await?;
 

@@ -1,10 +1,9 @@
-use crate::app::replica;
 use crate::{
-    app,
     app::{
-        history_manager,
+        self, history_manager,
         metrics::AuthzMeasure,
         nats::PRESENCE_SENDER_AGENT_ID,
+        replica,
         session_manager::Session,
         state::State,
         ws::{

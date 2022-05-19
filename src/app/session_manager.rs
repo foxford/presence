@@ -3,7 +3,6 @@ use tokio::{
     sync::{mpsc, oneshot, watch},
     task::JoinHandle,
 };
-use tracing::info;
 
 #[derive(Debug)]
 pub enum Session {
@@ -53,5 +52,3 @@ pub fn run(
         }
     })
 }
-
-

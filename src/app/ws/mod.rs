@@ -23,11 +23,11 @@ pub struct ConnectRequest {
     agent_label: String,
 }
 
-fn deserialize_agent_label<'de, D>(deserializer: D) -> Result<String, D::Error>
+fn deserialize_agent_label<'de, D>(de: D) -> Result<String, D::Error>
 where
     D: Deserializer<'de>,
 {
-    let s = String::deserialize(deserializer)?;
+    let s = String::deserialize(de)?;
     if s.is_empty() {
         return Err(D::Error::custom("agent_label is empty"));
     }

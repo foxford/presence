@@ -17,7 +17,7 @@ use axum::{
     response::IntoResponse,
     Json,
 };
-use serde_derive::Deserialize;
+use serde::Deserialize;
 use svc_agent::AgentId;
 use svc_authn::Authenticable;
 use svc_utils::extractors::AuthnExtractor;
@@ -66,7 +66,7 @@ async fn do_list_agents<S: State>(
 
     let agents = agent_session::AgentList::new(
         classroom_id,
-        payload.offset.unwrap_or(0),
+        payload.offset.unwrap_or_default(),
         std::cmp::min(payload.limit.unwrap_or(MAX_LIMIT), MAX_LIMIT),
     )
     .execute(&mut conn)
