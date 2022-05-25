@@ -237,7 +237,7 @@ async fn close_connection_with_error<T: Serialize>(
     mut sender: SplitSink<WebSocket, Message>,
     resp: T,
 ) {
-    let resp = serialize_to_json(resp);
+    let resp = serialize_to_json(&resp);
     let _ = sender.send(Message::Text(resp)).await;
     let _ = sender.close().await;
 }
@@ -271,7 +271,7 @@ async fn handle_authn_message<S: State>(
             let session_id = create_agent_session(state, classroom_id, &agent_id).await?;
 
             Ok((
-                serialize_to_json(Response::ConnectSuccess),
+                serialize_to_json(&Response::ConnectSuccess),
                 (session_id, SessionKey::new(agent_id, classroom_id)),
             ))
         }
@@ -417,7 +417,7 @@ fn get_agent_id_from_token(
     Ok(agent_id)
 }
 
-fn serialize_to_json<T: Serialize>(response: T) -> String {
+fn serialize_to_json<T: Serialize>(response: &T) -> String {
     serde_json::to_string(&response).unwrap_or_default()
 }
 
