@@ -32,7 +32,11 @@ pub enum Reason {
 
 impl fmt::Display for Reason {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self)
+        let reason = match self {
+            Reason::NotFound => "Not found",
+            Reason::FailedToSendMessage => "Failed to send message",
+        };
+        write!(f, "{}", reason)
     }
 }
 

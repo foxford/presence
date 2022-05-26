@@ -67,27 +67,6 @@
     },
     "query": "\n            UPDATE agent_session_history\n            SET lifetime = $2\n            WHERE id = $1\n            "
   },
-  "259def2db9217db641ec265c674eb9f316fb3cd1d85b5c50b1a1a1b2cb461958": {
-    "describe": {
-      "columns": [
-        {
-          "name": "id",
-          "ordinal": 0,
-          "type_info": "Uuid"
-        }
-      ],
-      "nullable": [
-        false
-      ],
-      "parameters": {
-        "Left": [
-          "Text",
-          "Inet"
-        ]
-      }
-    },
-    "query": "\n            INSERT INTO replica\n                (label, ip)\n            VALUES ($1, $2)\n            RETURNING\n                id\n            "
-  },
   "32b01b6a0b2c0a52bff6811a344899219a3403942fd3b8ee420f588c54e7974e": {
     "describe": {
       "columns": [
@@ -369,6 +348,27 @@
       }
     },
     "query": "\n            SELECT\n                id AS \"id: SessionId\",\n                agent_id AS \"agent_id: AgentId\",\n                classroom_id AS \"classroom_id: ClassroomId\",\n                replica_id,\n                started_at\n            FROM agent_session\n            WHERE\n                id = $1\n            LIMIT 1\n            "
+  },
+  "c88832d7f11373458b2d9a689282cc779235f12179ab89c1842d14d6aba8768f": {
+    "describe": {
+      "columns": [
+        {
+          "name": "id",
+          "ordinal": 0,
+          "type_info": "Uuid"
+        }
+      ],
+      "nullable": [
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Inet"
+        ]
+      }
+    },
+    "query": "\n            INSERT INTO replica (label, ip)\n            VALUES ($1, $2)\n            ON CONFLICT (label)\n            DO UPDATE SET ip = EXCLUDED.ip\n            RETURNING id\n            "
   },
   "c933897bae1096d9046189b27ec5f1baa4c6d8fff3637de5c2c0a0d553ddf67a": {
     "describe": {

@@ -25,11 +25,11 @@ impl InsertQuery {
         sqlx::query_as!(
             Replica,
             r#"
-            INSERT INTO replica
-                (label, ip)
+            INSERT INTO replica (label, ip)
             VALUES ($1, $2)
-            RETURNING
-                id
+            ON CONFLICT (label)
+            DO UPDATE SET ip = EXCLUDED.ip
+            RETURNING id
             "#,
             &self.label,
             &self.ip
