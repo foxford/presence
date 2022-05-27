@@ -42,19 +42,27 @@ pub async fn terminate(db_pool: &PgPool, id: Uuid) -> Result<()> {
     Ok(())
 }
 
-pub async fn close_connection<S: State>(state: S, session_key: SessionKey) -> Result<Response> {
+pub async fn close_connection<S: State>(
+    state: S,
+    replica_id: Uuid,
+    session_key: SessionKey,
+) -> Result<Response> {
     let mut conn = state.get_conn().await?;
 
-    let replica_ip = db::replica::GetIpQuery::new(state.replica_id())
+    let replica_ip = db::replica::GetIpQuery::new(replica_id)
         .execute(&mut conn)
         .await
         .context("Failed to get replica ip")?;
 
+    let replica_ip = replica_ip.ip.ip();
+
     let url = format!(
         "http://{}:{}/api/internal/session",
-        replica_ip.ip.ip(),
+        replica_ip,
         state.config().internal_listener_address.port()
     );
+
+    info!(replica_id = %replica_id, replica_ip = %replica_ip, "Trying to close connection on another replica");
 
     let payload = DeletePayload { session_key };
     let resp = reqwest::Client::new()

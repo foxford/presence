@@ -1,5 +1,26 @@
 {
   "db": "PostgreSQL",
+  "0e300cbd4ba8e48e23000140583d3aa3248ce2b96646d84a5529d0d0aff7402d": {
+    "describe": {
+      "columns": [
+        {
+          "name": "id",
+          "ordinal": 0,
+          "type_info": "Uuid"
+        }
+      ],
+      "nullable": [
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Record",
+          "Uuid"
+        ]
+      }
+    },
+    "query": "\n            SELECT replica_id AS \"id\"\n            FROM agent_session\n            WHERE agent_id = $1\n                AND classroom_id = $2\n            LIMIT 1\n            "
+  },
   "1475ac53bb002ec3c7db42824a5711d6bee3a6e288da8fd1adb5d3c749c37660": {
     "describe": {
       "columns": [

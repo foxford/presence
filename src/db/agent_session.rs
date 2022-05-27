@@ -1,4 +1,6 @@
-use crate::{classroom::ClassroomId, session::SessionId};
+use crate::{
+    classroom::ClassroomId, db::replica::Replica, session::SessionId, session::SessionKey,
+};
 use serde_derive::Serialize;
 use sqlx::{postgres::PgQueryResult, types::time::OffsetDateTime, Error, PgConnection};
 use std::collections::HashMap;
@@ -267,6 +269,33 @@ impl UpdateReplicaQuery {
             &self.agent_id as &AgentId,
             &self.classroom_id as &ClassroomId,
             &self.replica_id
+        )
+        .fetch_one(conn)
+        .await
+    }
+}
+
+pub struct GetReplicaQuery {
+    session_key: SessionKey,
+}
+
+impl GetReplicaQuery {
+    pub fn new(session_key: SessionKey) -> Self {
+        Self { session_key }
+    }
+
+    pub async fn execute(&self, conn: &mut PgConnection) -> sqlx::Result<Replica> {
+        sqlx::query_as!(
+            Replica,
+            r#"
+            SELECT replica_id AS "id"
+            FROM agent_session
+            WHERE agent_id = $1
+                AND classroom_id = $2
+            LIMIT 1
+            "#,
+            &self.session_key.agent_id as &AgentId,
+            &self.session_key.classroom_id as &ClassroomId,
         )
         .fetch_one(conn)
         .await

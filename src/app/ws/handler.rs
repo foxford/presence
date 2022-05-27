@@ -61,9 +61,20 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
         Ok(Some(result)) => match result {
             Ok(msg) => match handle_authn_message(msg, authn, state.clone()).await {
                 Ok((m, (session_id, session_key))) => {
+                    // To close old connections from the same agents
+                    let close_rx = match state.register_session(session_key.clone(), session_id) {
+                        Ok(rx) => rx,
+                        Err(e) => {
+                            error!(error = %e, "Failed to register session_key: {}", session_key);
+                            close_connection_with_error(sender, Response::from(e)).await;
+                            return;
+                        }
+                    };
+
+                    // Subscribe to events from nats
                     let nats_rx = match state
                         .nats_client()
-                        .subscribe(session_key.classroom_id)
+                        .subscribe(session_key.clone().classroom_id)
                         .await
                     {
                         Err(e) => {
@@ -74,15 +85,20 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
                         Ok(rx) => rx,
                     };
 
-                    // To close old connections from the same agents
-                    let close_rx = match state.register_session(session_key.clone(), session_id) {
-                        Ok(rx) => rx,
-                        Err(e) => {
-                            error!(error = %e, "Failed to register session_key: {}", session_key);
-                            close_connection_with_error(sender, Response::from(e)).await;
-                            return;
-                        }
-                    };
+                    // Send agent.enter others
+                    let event = Event::new(Label::AgentEnter).payload(session_key.clone().agent_id);
+                    if let Err(e) = state
+                        .nats_client()
+                        .publish_event(session_key.clone(), event)
+                    {
+                        error!(error = %e, "Failed to send agent.enter notification");
+                        close_connection_with_error(
+                            sender,
+                            Response::from(ConnectError::MessagingFailed),
+                        )
+                        .await;
+                        return;
+                    }
 
                     info!("Successful authentication, session_key: {}", &session_key);
                     let _ = sender.send(Message::Text(m)).await;
@@ -259,13 +275,10 @@ async fn handle_authn_message<S: State>(
             classroom_id,
             agent_label,
         })) => {
-            let agent_id = match get_agent_id_from_token(token, authn, agent_label) {
-                Ok(agent_id) => agent_id,
-                Err(err) => {
-                    error!(error = %err, "Failed to authenticate an agent");
-                    return Err(ConnectError::Unauthenticated);
-                }
-            };
+            let agent_id = get_agent_id_from_token(token, authn, agent_label).map_err(|e| {
+                error!(error = %e, "Failed to authenticate an agent");
+                ConnectError::Unauthenticated
+            })?;
 
             authorize_agent(state.clone(), &agent_id, &classroom_id).await?;
             let session_id = create_agent_session(state, classroom_id, &agent_id).await?;
@@ -287,13 +300,10 @@ async fn create_agent_session<S: State>(
     classroom_id: ClassroomId,
     agent_id: &AgentId,
 ) -> Result<SessionId, ConnectError> {
-    let mut conn = match state.get_conn().await {
-        Ok(conn) => conn,
-        Err(err) => {
-            error!(error = %err, "Failed to get db connection");
-            return Err(ConnectError::DbConnAcquisitionFailed);
-        }
-    };
+    let mut conn = state.get_conn().await.map_err(|e| {
+        error!(error = %e, "Failed to get db connection");
+        ConnectError::DbConnAcquisitionFailed
+    })?;
 
     // Attempt to close old session on the same replica
     let session_key = SessionKey::new(agent_id.clone(), classroom_id);
@@ -317,24 +327,23 @@ async fn create_agent_session<S: State>(
     );
 
     match insert_query.execute(&mut conn).await {
-        InsertResult::Ok(agent_session) => {
-            let session_key =
-                SessionKey::new(agent_session.agent_id.clone(), agent_session.classroom_id);
-            let event = Event::new(Label::AgentEnter).payload(agent_session.agent_id);
-            if let Err(e) = state.nats_client().publish_event(session_key, event) {
-                error!(error = %e, "Failed to send agent.enter notification");
-                return Err(ConnectError::MessagingFailed);
-            }
-
-            Ok(agent_session.id)
-        }
+        InsertResult::Ok(agent_session) => Ok(agent_session.id),
         InsertResult::Error(err) => {
             error!(error = %err, "Failed to create an agent session");
             Err(ConnectError::DbQueryFailed)
         }
         InsertResult::UniqIdsConstraintError => {
             use app::api::internal::session::Response as DeleteResponse;
-            match replica::close_connection(state.clone(), session_key).await {
+
+            let replica = agent_session::GetReplicaQuery::new(session_key.clone())
+                .execute(&mut conn)
+                .await
+                .map_err(|e| {
+                    error!(error = %e, "Failed to get replica id from db");
+                    ConnectError::DbQueryFailed
+                })?;
+
+            match replica::close_connection(state.clone(), replica.id, session_key).await {
                 Ok(resp) => match resp {
                     DeleteResponse::DeleteSuccess => {
                         match agent_session::UpdateReplicaQuery::new(
@@ -345,18 +354,7 @@ async fn create_agent_session<S: State>(
                         .execute(&mut conn)
                         .await
                         {
-                            Ok(session) => {
-                                let session_key = SessionKey::new(agent_id.clone(), classroom_id);
-                                let event = Event::new(Label::AgentEnter).payload(agent_id.clone());
-                                if let Err(e) =
-                                    state.nats_client().publish_event(session_key, event)
-                                {
-                                    error!(error = %e, "Failed to send agent.enter notification");
-                                    return Err(ConnectError::MessagingFailed);
-                                }
-
-                                Ok(session.id)
-                            }
+                            Ok(session) => Ok(session.id),
                             Err(e) => {
                                 error!(error = %e, "Failed to update replica_id");
                                 Err(ConnectError::CloseOldConnectionFailed)
