@@ -30,7 +30,7 @@ svc-authz = "0.11"
 svc-error = { version = "0.4", features = ["sentry-extension", "sqlx", "serialize-status-code"] }
 svc-utils = { version = "0.3", features = ["log-middleware", "authn-extractor", "metrics-middleware", "cors-middleware"] }
 thiserror = "1.0"
-tokio = { version = "1.16", features = ["full"] }
+tokio = { version = "1.19", features = ["full"] }
 tracing = "0.1"
 tracing-appender = "0.2"
 tracing-subscriber = { version = "0.3", features = ["json", "env-filter"] }
