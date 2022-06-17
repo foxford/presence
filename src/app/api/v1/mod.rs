@@ -2,6 +2,7 @@ use axum::{body::Body, response::Response};
 
 pub mod classroom;
 pub mod counter;
+pub mod session;
 
 pub async fn healthz() -> &'static str {
     "Ok"

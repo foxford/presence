@@ -1,6 +1,6 @@
 use crate::{
     app::{
-        api::internal::session::{DeletePayload, Response},
+        api::v1::session::{DeletePayload, Response},
         state::State,
     },
     db,

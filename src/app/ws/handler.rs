@@ -333,7 +333,7 @@ async fn create_agent_session<S: State>(
             Err(ConnectError::DbQueryFailed)
         }
         InsertResult::UniqIdsConstraintError => {
-            use app::api::internal::session::Response as DeleteResponse;
+            use app::api::v1::session::Response as DeleteResponse;
 
             let replica = agent_session::GetReplicaQuery::new(session_key.clone())
                 .execute(&mut conn)

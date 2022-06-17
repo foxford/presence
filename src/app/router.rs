@@ -1,6 +1,6 @@
 use crate::{
     app::{
-        api::{internal, v1},
+        api::v1,
         state::{AppState, State},
         ws,
     },
@@ -43,7 +43,7 @@ fn ws_router() -> Router {
 
 pub fn new_internal(sessions: SessionMap) -> Router {
     Router::new()
-        .route("/api/internal/session", delete(internal::session::delete))
+        .route("/api/v1/sessions", delete(v1::session::delete))
         .layer(Extension(sessions))
         .layer(LogLayer::new())
 }
