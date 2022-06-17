@@ -1,7 +1,7 @@
 use crate::{
     app::{
         metrics::Metrics,
-        nats::{Client, NatsClient},
+        nats::NatsClient,
         session_manager::{Command, Session},
     },
     config::Config,
@@ -47,13 +47,13 @@ struct InnerState {
 }
 
 impl AppState {
-    pub fn new(
+    pub fn new<N: NatsClient + 'static>(
         config: Config,
         db_pool: PgPool,
         authz: Authz,
         replica_id: Uuid,
         cmd_sender: UnboundedSender<Command>,
-        nats_client: Client,
+        nats_client: N,
         metrics: Metrics,
     ) -> Self {
         Self {
@@ -63,7 +63,7 @@ impl AppState {
                 authz,
                 replica_id,
                 cmd_sender,
-                nats_client: Box::new(nats_client) as Box<dyn NatsClient>,
+                nats_client: Box::new(nats_client),
                 metrics,
             }),
         }
