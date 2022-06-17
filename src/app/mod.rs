@@ -14,7 +14,6 @@ use tracing::{error, info};
 mod api;
 mod error;
 mod history_manager;
-mod local_ip;
 mod replica;
 mod router;
 mod ws;

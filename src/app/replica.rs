@@ -1,15 +1,18 @@
-use crate::app::api::internal::session::{DeletePayload, Response};
-use crate::app::local_ip;
-use crate::app::state::State;
-use crate::db;
-use crate::session::SessionKey;
+use crate::{
+    app::{
+        api::internal::session::{DeletePayload, Response},
+        state::State,
+    },
+    db,
+    session::SessionKey,
+};
 use anyhow::{Context, Result};
 use sqlx::PgPool;
 use tracing::info;
 use uuid::Uuid;
 
 pub async fn register(db_pool: &PgPool, label: String) -> Result<Uuid> {
-    let ip = local_ip::get_local_ip().context("Failed to get local ip")?;
+    let ip = local_ip_address::local_ip().context("Failed to get local ip")?;
     info!("Replica IP: {}", ip);
 
     let mut conn = db_pool
