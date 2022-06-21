@@ -1,7 +1,9 @@
+use crate::{classroom::ClassroomId, session::SessionKey};
 use sqlx::postgres::PgQueryResult;
 use sqlx::types::ipnetwork::IpNetwork;
 use sqlx::PgConnection;
 use std::net::IpAddr;
+use svc_agent::AgentId;
 use uuid::Uuid;
 
 pub struct InsertQuery {
@@ -62,27 +64,38 @@ impl DeleteQuery {
 }
 
 pub struct ReplicaIp {
-    pub ip: IpNetwork,
+    ip: IpNetwork,
+}
+
+impl ReplicaIp {
+    pub fn ip(&self) -> IpAddr {
+        self.ip.ip()
+    }
 }
 
 pub struct GetIpQuery {
-    id: Uuid,
+    session_key: SessionKey,
 }
 
 impl GetIpQuery {
-    pub fn new(id: Uuid) -> Self {
-        Self { id }
+    pub fn new(session_key: SessionKey) -> Self {
+        Self { session_key }
     }
 
     pub async fn execute(&self, conn: &mut PgConnection) -> sqlx::Result<ReplicaIp> {
         sqlx::query_as!(
             ReplicaIp,
             r#"
-            SELECT ip
+            SELECT replica.ip
             FROM replica
-            WHERE id = $1
+            JOIN agent_session
+                ON replica.id = agent_session.replica_id
+            WHERE agent_session.agent_id = $1
+                AND agent_session.classroom_id = $2
+            LIMIT 1
             "#,
-            self.id
+            &self.session_key.agent_id as &AgentId,
+            &self.session_key.classroom_id as &ClassroomId,
         )
         .fetch_one(conn)
         .await

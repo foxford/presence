@@ -39,7 +39,7 @@ pub async fn run(db: PgPool, authz_cache: Option<AuthzCache>) -> Result<()> {
         .context("Error converting authz config to clients")?;
 
     // A channel for managing agent session via sending commands from WebSocket handler
-    let (cmd_tx, cmd_rx) = mpsc::unbounded_channel::<session_manager::Command>();
+    let (cmd_tx, cmd_rx) = mpsc::unbounded_channel::<session_manager::SessionCommand>();
 
     let nats_client = {
         info!("Connecting to NATS");
@@ -105,17 +105,17 @@ pub async fn run(db: PgPool, authz_cache: Option<AuthzCache>) -> Result<()> {
         error!(error = %e, "Failed to move all sessions to history");
     }
 
-    // Make sure server and session manager, and others are stopped
+    // Make sure session manager, server, and others are stopped
+    if let Err(err) = session_manager.await {
+        error!(error = %err, "Failed to await session manager completion");
+    }
+
     if let Err(err) = server.await {
         error!(error = %err, "Failed to await server completion");
     }
 
     if let Err(err) = internal_server.await {
-        error!(error = %err, "Failed to await internal_server completion");
-    }
-
-    if let Err(err) = session_manager.await {
-        error!(error = %err, "Failed to await session manager completion");
+        error!(error = %err, "Failed to await internal server completion");
     }
 
     if let Err(err) = replica::terminate(&db, replica_id).await {

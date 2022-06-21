@@ -5,6 +5,7 @@ use crate::{
         nats::PRESENCE_SENDER_AGENT_ID,
         replica,
         session_manager::Session,
+        session_manager::{ConnectionCommand, DeleteSession},
         state::State,
         ws::{
             event::{Event, Label},
@@ -14,7 +15,10 @@ use crate::{
     authz::AuthzObject,
     authz_hack,
     classroom::ClassroomId,
-    db::agent_session::{self, InsertResult},
+    db::{
+        self,
+        agent_session::{self, InsertResult},
+    },
     session::SessionId,
     session::SessionKey,
 };
@@ -66,7 +70,7 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
                         Ok(rx) => rx,
                         Err(e) => {
                             error!(error = %e, "Failed to register session_key: {}", session_key);
-                            close_connection_with_error(sender, Response::from(e)).await;
+                            close_connection_with_message(sender, Response::from(e)).await;
                             return;
                         }
                     };
@@ -77,12 +81,12 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
                         .subscribe(session_key.clone().classroom_id)
                         .await
                     {
+                        Ok(rx) => rx,
                         Err(e) => {
                             error!(error = ?e);
-                            close_connection_with_error(sender, Response::from(e)).await;
+                            close_connection_with_message(sender, Response::from(e)).await;
                             return;
                         }
-                        Ok(rx) => rx,
                     };
 
                     // Send agent.enter others
@@ -92,7 +96,7 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
                         .publish_event(session_key.clone(), event)
                     {
                         error!(error = %e, "Failed to send agent.enter notification");
-                        close_connection_with_error(
+                        close_connection_with_message(
                             sender,
                             Response::from(ConnectError::MessagingFailed),
                         )
@@ -109,7 +113,7 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
                 Err(e) => {
                     info!("Connection is closed (unsuccessful request)");
                     state.metrics().ws_connection_error().inc();
-                    close_connection_with_error(sender, Response::from(e)).await;
+                    close_connection_with_message(sender, Response::from(e)).await;
                     return;
                 }
             },
@@ -120,7 +124,7 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
         },
         Ok(None) | Err(_) => {
             info!("Connection is closed (authentication timeout exceeded)");
-            close_connection_with_error(sender, Event::new(Label::AuthTimedOut)).await;
+            close_connection_with_message(sender, Event::new(Label::AuthTimedOut)).await;
             return;
         }
     };
@@ -201,26 +205,37 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
             _ = pong_expiration_interval.tick() => {
                 if ping_sent {
                     info!("Connection is closed (pong timeout exceeded)");
-                    close_connection_with_error(sender, Event::new(Label::PongTimedOut)).await;
+                    close_connection_with_message(sender, Event::new(Label::PongTimedOut)).await;
                     break;
                 }
             }
-            // Close old connections
-            result = &mut close_rx => {
-                info!("Old connection is closed");
+            // Close connections
+            Ok(cmd) = &mut close_rx => {
+                match cmd {
+                    ConnectionCommand::Close(resp_sender) => {
+                        let event = Event::new(Label::AgentReplaced).payload(session_key.agent_id.clone());
+                        close_connection_with_message(sender, event).await;
 
-                let event = Event::new(Label::AgentReplaced).payload(session_key.agent_id.clone());
-                close_connection_with_error(sender, event).await;
+                        if let Some(resp) = resp_sender {
+                            match history_manager::move_single_session(state.clone(), session_id).await {
+                                Ok(_) => {
+                                    resp.send(DeleteSession::Success).ok();
+                                }
+                                Err(e) => {
+                                    // TODO: Send to sentry
+                                    error!(error = %e, "Failed to move session to history");
+                                    resp.send(DeleteSession::Failure).ok();
+                                }
+                            }
+                        }
+                    }
+                    ConnectionCommand::Terminate => {
+                        unimplemented!()
+                    }
+                }
+
+                info!("Connection is closed");
                 state.metrics().ws_connection_total().dec();
-
-                // Skip moving old session to history on the same replica
-                if result.is_err() {
-                    return;
-                }
-
-                if let Err(err) = history_manager::move_single_session(state, session_id).await {
-                    error!(error = %err, "Failed to move session to history");
-                }
 
                 return;
             }
@@ -249,7 +264,7 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
 }
 
 /// Closes the WebSocket connection with an error message
-async fn close_connection_with_error<T: Serialize>(
+async fn close_connection_with_message<T: Serialize>(
     mut sender: SplitSink<WebSocket, Message>,
     resp: T,
 ) {
@@ -335,39 +350,44 @@ async fn create_agent_session<S: State>(
         InsertResult::UniqIdsConstraintError => {
             use app::api::v1::session::Response as DeleteResponse;
 
-            let replica = agent_session::GetReplicaQuery::new(session_key.clone())
+            let replica_ip = db::replica::GetIpQuery::new(session_key.clone())
                 .execute(&mut conn)
                 .await
                 .map_err(|e| {
-                    error!(error = %e, "Failed to get replica id from db");
+                    error!(error = %e, "Failed to get replica ip");
                     ConnectError::DbQueryFailed
                 })?;
 
-            match replica::close_connection(state.clone(), replica.id, session_key).await {
-                Ok(resp) => match resp {
-                    DeleteResponse::DeleteSuccess => {
-                        match agent_session::UpdateReplicaQuery::new(
-                            agent_id.clone(),
-                            classroom_id,
-                            state.replica_id(),
-                        )
-                        .execute(&mut conn)
-                        .await
-                        {
-                            Ok(session) => Ok(session.id),
-                            Err(e) => {
-                                error!(error = %e, "Failed to update replica_id");
-                                Err(ConnectError::CloseOldConnectionFailed)
-                            }
+            match replica::close_connection(replica_ip.ip(), session_key).await {
+                Ok(DeleteResponse::DeleteSuccess) => {
+                    match agent_session::InsertQuery::new(
+                        agent_id,
+                        classroom_id,
+                        state.replica_id(),
+                        OffsetDateTime::now_utc(),
+                    )
+                    .execute(&mut conn)
+                    .await
+                    {
+                        InsertResult::Ok(session) => Ok(session.id),
+                        InsertResult::Error(e) => {
+                            // TODO: Send to sentry?
+                            error!(error = %e, "Failed to create new agent session");
+                            Err(ConnectError::DbQueryFailed)
+                        }
+                        InsertResult::UniqIdsConstraintError => {
+                            error!("Failed to create new agent session");
+                            Err(ConnectError::DbQueryFailed)
                         }
                     }
-                    DeleteResponse::DeleteFailure(r) => {
-                        error!(reason = %r, "Failed to close connection on another replica");
-                        Err(ConnectError::CloseOldConnectionFailed)
-                    }
-                },
+                }
                 Err(e) => {
+                    // TODO: Send to sentry?
                     error!(error = %e, "Failed to close connection on another replica");
+                    Err(ConnectError::CloseOldConnectionFailed)
+                }
+                Ok(DeleteResponse::DeleteFailure(r)) => {
+                    error!(reason = %r, "Failed to delete connection on another replica");
                     Err(ConnectError::CloseOldConnectionFailed)
                 }
             }

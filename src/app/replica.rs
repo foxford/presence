@@ -1,13 +1,11 @@
 use crate::{
-    app::{
-        api::v1::session::{DeletePayload, Response},
-        state::State,
-    },
+    app::api::v1::session::{DeletePayload, Response},
     db,
     session::SessionKey,
 };
 use anyhow::{Context, Result};
 use sqlx::PgPool;
+use std::net::IpAddr;
 use tracing::info;
 use uuid::Uuid;
 
@@ -45,27 +43,15 @@ pub async fn terminate(db_pool: &PgPool, id: Uuid) -> Result<()> {
     Ok(())
 }
 
-pub async fn close_connection<S: State>(
-    state: S,
-    replica_id: Uuid,
-    session_key: SessionKey,
-) -> Result<Response> {
-    let mut conn = state.get_conn().await?;
-
-    let replica_ip = db::replica::GetIpQuery::new(replica_id)
-        .execute(&mut conn)
-        .await
-        .context("Failed to get replica ip")?;
-
-    let replica_ip = replica_ip.ip.ip();
-
+pub async fn close_connection(replica_ip: IpAddr, session_key: SessionKey) -> Result<Response> {
     let url = format!(
-        "http://{}:{}/api/internal/session",
+        "http://{}:{}/api/v1/sessions",
         replica_ip,
-        state.config().internal_listener_address.port()
+        // state.config().internal_listener_address.port()
+        3002,
     );
 
-    info!(replica_id = %replica_id, replica_ip = %replica_ip, "Trying to close connection on another replica");
+    info!(replica_ip = %replica_ip, "Trying to close connection on another replica");
 
     let payload = DeletePayload { session_key };
     let resp = reqwest::Client::new()

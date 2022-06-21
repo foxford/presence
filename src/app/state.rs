@@ -2,7 +2,7 @@ use crate::{
     app::{
         metrics::Metrics,
         nats::NatsClient,
-        session_manager::{Command, Session},
+        session_manager::{ConnectionCommand, Session, SessionCommand},
     },
     config::Config,
     session::{SessionId, SessionKey},
@@ -25,7 +25,7 @@ pub trait State: Send + Sync + Clone + 'static {
         &self,
         session_key: SessionKey,
         session_id: SessionId,
-    ) -> Result<oneshot::Receiver<()>>;
+    ) -> Result<oneshot::Receiver<ConnectionCommand>>;
     async fn terminate_session(&self, session_key: SessionKey, return_id: bool) -> Result<Session>;
     async fn get_conn(&self) -> Result<PoolConnection<Postgres>>;
     fn nats_client(&self) -> &dyn NatsClient;
@@ -41,7 +41,7 @@ struct InnerState {
     db_pool: PgPool,
     authz: Authz,
     replica_id: Uuid,
-    cmd_sender: UnboundedSender<Command>,
+    cmd_sender: UnboundedSender<SessionCommand>,
     nats_client: Box<dyn NatsClient>,
     metrics: Metrics,
 }
@@ -52,7 +52,7 @@ impl AppState {
         db_pool: PgPool,
         authz: Authz,
         replica_id: Uuid,
-        cmd_sender: UnboundedSender<Command>,
+        cmd_sender: UnboundedSender<SessionCommand>,
         nats_client: N,
         metrics: Metrics,
     ) -> Self {
@@ -92,11 +92,11 @@ impl State for AppState {
         &self,
         session_key: SessionKey,
         session_id: SessionId,
-    ) -> Result<oneshot::Receiver<()>> {
-        let (tx, rx) = oneshot::channel::<()>();
+    ) -> Result<oneshot::Receiver<ConnectionCommand>> {
+        let (tx, rx) = oneshot::channel::<ConnectionCommand>();
         self.inner
             .cmd_sender
-            .send(Command::Register(session_key, (session_id, tx)))?;
+            .send(SessionCommand::Register(session_key, (session_id, tx)))?;
 
         Ok(rx)
     }
@@ -106,14 +106,14 @@ impl State for AppState {
             let (tx, rx) = oneshot::channel::<Session>();
             self.inner
                 .cmd_sender
-                .send(Command::Terminate(session_key, Some(tx)))?;
+                .send(SessionCommand::Terminate(session_key, Some(tx)))?;
 
             return rx.await.context("failed to receive previous session id");
         }
 
         self.inner
             .cmd_sender
-            .send(Command::Terminate(session_key, None))?;
+            .send(SessionCommand::Terminate(session_key, None))?;
 
         Ok(Session::Skip)
     }

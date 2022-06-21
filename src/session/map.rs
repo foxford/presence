@@ -1,11 +1,14 @@
-use crate::session::{SessionId, SessionKey};
+use crate::{
+    app::session_manager::ConnectionCommand,
+    session::{SessionId, SessionKey},
+};
 use std::{
     collections::HashMap,
     sync::{Arc, Mutex},
 };
 use tokio::sync::oneshot;
 
-pub type SessionValue = (SessionId, oneshot::Sender<()>);
+pub type SessionValue = (SessionId, oneshot::Sender<ConnectionCommand>);
 
 #[derive(Clone, Debug)]
 pub struct SessionMap {

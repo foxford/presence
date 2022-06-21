@@ -12,16 +12,29 @@ pub enum Session {
 }
 
 #[derive(Debug)]
-pub enum Command {
+pub enum SessionCommand {
     Register(SessionKey, SessionValue),
     Terminate(SessionKey, Option<oneshot::Sender<Session>>),
+}
+
+#[derive(Debug)]
+pub enum ConnectionCommand {
+    Close(Option<oneshot::Sender<DeleteSession>>),
+    #[allow(dead_code)]
+    Terminate,
+}
+
+#[derive(Debug)]
+pub enum DeleteSession {
+    Success,
+    Failure,
 }
 
 /// Manages agent sessions by handling incoming commands.
 /// Also, closes old agent sessions.
 pub fn run(
     sessions: SessionMap,
-    mut cmd_rx: mpsc::UnboundedReceiver<Command>,
+    mut cmd_rx: mpsc::UnboundedReceiver<SessionCommand>,
     mut shutdown_rx: watch::Receiver<()>,
 ) -> JoinHandle<()> {
     tokio::task::spawn(async move {
@@ -29,23 +42,25 @@ pub fn run(
             tokio::select! {
                 Some(cmd) = cmd_rx.recv() => {
                     match cmd {
-                        Command::Register(session_key, value) => {
+                        SessionCommand::Register(session_key, value) => {
                             sessions.insert(session_key, value);
                         }
-                        Command::Terminate(session_key, sender) => {
-                            // After removing `oneshot::Sender<()>` from HashMap,
-                            // oneshot::Receiver<()> will get `RecvError` and close old connection
-                            if let Some((session_id, _)) = sessions.remove(&session_key) {
-                                sender.and_then(|s| s.send(Session::Found(session_id)).ok());
+                        SessionCommand::Terminate(session_key, resp) => {
+                            if let Some((session_id, cmd)) = sessions.remove(&session_key) {
+                                if cmd.send(ConnectionCommand::Close(None)).is_ok() {
+                                    resp.and_then(|s| s.send(Session::Found(session_id)).ok());
+                                }
+
                                 continue;
                             }
 
-                            sender.and_then(|s| s.send(Session::NotFound).ok());
+                            resp.and_then(|s| s.send(Session::NotFound).ok());
                         }
                     }
                 }
                 // Graceful shutdown
                 _ = shutdown_rx.changed() => {
+                    // TODO: Send `ConnectionCommand::Terminate`
                     break;
                 }
             }

@@ -1,6 +1,4 @@
-use crate::{
-    classroom::ClassroomId, db::replica::Replica, session::SessionId, session::SessionKey,
-};
+use crate::{classroom::ClassroomId, session::SessionId};
 use serde_derive::Serialize;
 use sqlx::{postgres::PgQueryResult, types::time::OffsetDateTime, Error, PgConnection};
 use std::collections::HashMap;
@@ -231,71 +229,6 @@ impl GetQuery {
             LIMIT 1
             "#,
             &self.id as &SessionId
-        )
-        .fetch_one(conn)
-        .await
-    }
-}
-
-pub struct UpdateReplicaQuery {
-    agent_id: AgentId,
-    classroom_id: ClassroomId,
-    replica_id: Uuid,
-}
-
-pub struct AgentSessionId {
-    pub id: SessionId,
-}
-
-impl UpdateReplicaQuery {
-    pub fn new(agent_id: AgentId, classroom_id: ClassroomId, replica_id: Uuid) -> Self {
-        Self {
-            agent_id,
-            classroom_id,
-            replica_id,
-        }
-    }
-
-    pub async fn execute(&self, conn: &mut PgConnection) -> sqlx::Result<AgentSessionId> {
-        sqlx::query_as!(
-            AgentSessionId,
-            r#"
-            UPDATE agent_session
-            SET replica_id = $3
-            WHERE agent_id = $1
-                AND classroom_id = $2
-            RETURNING id AS "id: SessionId"
-            "#,
-            &self.agent_id as &AgentId,
-            &self.classroom_id as &ClassroomId,
-            &self.replica_id
-        )
-        .fetch_one(conn)
-        .await
-    }
-}
-
-pub struct GetReplicaQuery {
-    session_key: SessionKey,
-}
-
-impl GetReplicaQuery {
-    pub fn new(session_key: SessionKey) -> Self {
-        Self { session_key }
-    }
-
-    pub async fn execute(&self, conn: &mut PgConnection) -> sqlx::Result<Replica> {
-        sqlx::query_as!(
-            Replica,
-            r#"
-            SELECT replica_id AS "id"
-            FROM agent_session
-            WHERE agent_id = $1
-                AND classroom_id = $2
-            LIMIT 1
-            "#,
-            &self.session_key.agent_id as &AgentId,
-            &self.session_key.classroom_id as &ClassroomId,
         )
         .fetch_one(conn)
         .await
