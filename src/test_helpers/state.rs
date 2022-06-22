@@ -1,5 +1,10 @@
 use crate::{
-    app::{metrics::Metrics, nats::NatsClient, session_manager::Session, state::State},
+    app::{
+        metrics::Metrics,
+        nats::NatsClient,
+        session_manager::{ConnectionCommand, Session},
+        state::State,
+    },
     classroom::ClassroomId,
     config::{Config, NatsConfig, WebSocketConfig},
     session::{SessionId, SessionKey},
@@ -90,8 +95,12 @@ impl State for TestState {
         todo!()
     }
 
-    fn register_session(&self, _: SessionKey, _: SessionId) -> Result<oneshot::Receiver<()>> {
-        let (_, rx) = oneshot::channel::<()>();
+    fn register_session(
+        &self,
+        _: SessionKey,
+        _: SessionId,
+    ) -> Result<oneshot::Receiver<ConnectionCommand>> {
+        let (_, rx) = oneshot::channel::<ConnectionCommand>();
         Ok(rx)
     }
 

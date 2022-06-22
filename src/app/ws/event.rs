@@ -17,12 +17,6 @@ pub enum Label {
     AgentEnter,
     #[serde(rename = "agent.leave")]
     AgentLeave,
-    #[serde(rename = "agent.replaced")]
-    AgentReplaced,
-    #[serde(rename = "agent.auth_timed_out")]
-    AuthTimedOut,
-    #[serde(rename = "agent.pong_timed_out")]
-    PongTimedOut,
 }
 
 impl Display for Label {
@@ -30,9 +24,6 @@ impl Display for Label {
         let label = match self {
             Label::AgentEnter => "agent.enter",
             Label::AgentLeave => "agent.leave",
-            Label::AgentReplaced => "agent.replaced",
-            Label::AuthTimedOut => "agent.auth_timed_out",
-            Label::PongTimedOut => "agent.pong_timed_out",
         };
 
         write!(f, "{}", label)

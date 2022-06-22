@@ -39,11 +39,12 @@ where
 #[serde(tag = "type", content = "payload", rename_all = "snake_case")]
 pub enum Response {
     ConnectSuccess,
-    ConnectFailure(SvcError),
+    UnrecoverableSessionError(SvcError),
+    RecoverableSessionError(SvcError),
 }
 
 #[derive(PartialEq, Debug)]
-enum ConnectError {
+enum UnrecoverableSessionError {
     UnsupportedRequest,
     Unauthenticated,
     AccessDenied,
@@ -52,45 +53,74 @@ enum ConnectError {
     SerializationFailed,
     MessagingFailed,
     CloseOldConnectionFailed,
+    AuthTimedOut,
+    PongTimedOut,
+    Replaced,
 }
 
-impl From<ConnectError> for Response {
-    fn from(e: ConnectError) -> Self {
+#[allow(dead_code)]
+enum RecoverableSessionError {
+    Terminated,
+}
+
+impl From<UnrecoverableSessionError> for Response {
+    fn from(e: UnrecoverableSessionError) -> Self {
         let mut builder = SvcError::builder();
 
         builder = match e {
-            ConnectError::UnsupportedRequest => builder
+            UnrecoverableSessionError::UnsupportedRequest => builder
                 .status(StatusCode::UNPROCESSABLE_ENTITY)
                 .kind("unsupported_request", "Unsupported Request"),
-            ConnectError::Unauthenticated => builder
+            UnrecoverableSessionError::Unauthenticated => builder
                 .status(StatusCode::UNAUTHORIZED)
                 .kind("unauthenticated", "Unauthenticated"),
-            ConnectError::AccessDenied => builder
+            UnrecoverableSessionError::AccessDenied => builder
                 .status(StatusCode::FORBIDDEN)
                 .kind("access_denied", "Access Denied"),
-            ConnectError::DbConnAcquisitionFailed => {
+            UnrecoverableSessionError::DbConnAcquisitionFailed => {
                 builder.status(StatusCode::UNPROCESSABLE_ENTITY).kind(
                     "database_connection_acquisition_failed",
                     "Database connection acquisition failed",
                 )
             }
-            ConnectError::DbQueryFailed => builder
+            UnrecoverableSessionError::DbQueryFailed => builder
                 .status(StatusCode::UNPROCESSABLE_ENTITY)
                 .kind("database_query_failed", "Database query failed"),
-            ConnectError::SerializationFailed => builder
+            UnrecoverableSessionError::SerializationFailed => builder
                 .status(StatusCode::UNPROCESSABLE_ENTITY)
                 .kind("serialization_failed", "Serialization failed"),
-            ConnectError::MessagingFailed => builder
+            UnrecoverableSessionError::MessagingFailed => builder
                 .status(StatusCode::UNPROCESSABLE_ENTITY)
                 .kind("messaging_failed", "Messaging failed"),
-            ConnectError::CloseOldConnectionFailed => builder
+            UnrecoverableSessionError::CloseOldConnectionFailed => builder
                 .status(StatusCode::UNPROCESSABLE_ENTITY)
                 .kind("close_old_connection_failed", "Close old connection failed"),
+            UnrecoverableSessionError::AuthTimedOut => builder
+                .status(StatusCode::UNPROCESSABLE_ENTITY)
+                .kind("auth_timed_out", "Auth timed out"),
+            UnrecoverableSessionError::PongTimedOut => builder
+                .status(StatusCode::UNPROCESSABLE_ENTITY)
+                .kind("pong_timed_out", "Pong timed out"),
+            UnrecoverableSessionError::Replaced => builder
+                .status(StatusCode::UNPROCESSABLE_ENTITY)
+                .kind("replaced", "replaced"),
         };
 
-        let error = builder.build();
+        Response::UnrecoverableSessionError(builder.build())
+    }
+}
 
-        Response::ConnectFailure(error)
+impl From<RecoverableSessionError> for Response {
+    fn from(e: RecoverableSessionError) -> Self {
+        let mut builder = SvcError::builder();
+
+        builder = match e {
+            RecoverableSessionError::Terminated => builder
+                .status(StatusCode::UNPROCESSABLE_ENTITY)
+                .kind("terminated", "terminated"),
+        };
+
+        Response::RecoverableSessionError(builder.build())
     }
 }
 
@@ -98,10 +128,10 @@ impl From<anyhow::Error> for Response {
     fn from(e: anyhow::Error) -> Self {
         let error = SvcError::builder()
             .status(StatusCode::INTERNAL_SERVER_ERROR)
-            .kind("internal_error", "Internal error")
+            .kind("internal_server_error", "Internal server error")
             .detail(&e.to_string())
             .build();
 
-        Response::ConnectFailure(error)
+        Response::UnrecoverableSessionError(error)
     }
 }

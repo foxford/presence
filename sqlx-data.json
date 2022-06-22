@@ -1,26 +1,5 @@
 {
   "db": "PostgreSQL",
-  "0e300cbd4ba8e48e23000140583d3aa3248ce2b96646d84a5529d0d0aff7402d": {
-    "describe": {
-      "columns": [
-        {
-          "name": "id",
-          "ordinal": 0,
-          "type_info": "Uuid"
-        }
-      ],
-      "nullable": [
-        false
-      ],
-      "parameters": {
-        "Left": [
-          "Record",
-          "Uuid"
-        ]
-      }
-    },
-    "query": "\n            SELECT replica_id AS \"id\"\n            FROM agent_session\n            WHERE agent_id = $1\n                AND classroom_id = $2\n            LIMIT 1\n            "
-  },
   "1475ac53bb002ec3c7db42824a5711d6bee3a6e288da8fd1adb5d3c749c37660": {
     "describe": {
       "columns": [
@@ -87,28 +66,6 @@
       }
     },
     "query": "\n            UPDATE agent_session_history\n            SET lifetime = $2\n            WHERE id = $1\n            "
-  },
-  "32b01b6a0b2c0a52bff6811a344899219a3403942fd3b8ee420f588c54e7974e": {
-    "describe": {
-      "columns": [
-        {
-          "name": "id: SessionId",
-          "ordinal": 0,
-          "type_info": "Uuid"
-        }
-      ],
-      "nullable": [
-        false
-      ],
-      "parameters": {
-        "Left": [
-          "Record",
-          "Uuid",
-          "Uuid"
-        ]
-      }
-    },
-    "query": "\n            UPDATE agent_session\n            SET replica_id = $3\n            WHERE agent_id = $1\n                AND classroom_id = $2\n            RETURNING id AS \"id: SessionId\"\n            "
   },
   "35b166044ea26bd71ebad7be36a97c574a0a213c6ed13568f09b3116f21a83a7": {
     "describe": {
@@ -207,26 +164,6 @@
     },
     "query": "\n            SELECT\n                COUNT(*) AS total\n            FROM\n                agent_session_history\n            "
   },
-  "840cd9612c296e657eb8ee13d92ec80c499bde31d8512e40c6ef1f12ce83e0c9": {
-    "describe": {
-      "columns": [
-        {
-          "name": "ip",
-          "ordinal": 0,
-          "type_info": "Inet"
-        }
-      ],
-      "nullable": [
-        false
-      ],
-      "parameters": {
-        "Left": [
-          "Uuid"
-        ]
-      }
-    },
-    "query": "\n            SELECT ip\n            FROM replica\n            WHERE id = $1\n            "
-  },
   "8cd09966e7f525b819b5ca275a35257457accc423a06ea03d6f1fc599d00397f": {
     "describe": {
       "columns": [
@@ -293,6 +230,27 @@
       }
     },
     "query": "\n            INSERT INTO agent_session_history\n                (id, agent_id, classroom_id, lifetime)\n            VALUES ($1, $2, $3, tstzrange($4, now()))\n            "
+  },
+  "97a69ce20b3fdfa811a31b838027f5c52f823c171352f553a4f1f0b081662f56": {
+    "describe": {
+      "columns": [
+        {
+          "name": "ip",
+          "ordinal": 0,
+          "type_info": "Inet"
+        }
+      ],
+      "nullable": [
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Record",
+          "Uuid"
+        ]
+      }
+    },
+    "query": "\n            SELECT replica.ip\n            FROM replica\n            JOIN agent_session\n                ON replica.id = agent_session.replica_id\n            WHERE agent_session.agent_id = $1\n                AND agent_session.classroom_id = $2\n            LIMIT 1\n            "
   },
   "ac48c91d82b0c301ee231d3a9e0d7adeff8367d1a6c92672307fa931780eb849": {
     "describe": {

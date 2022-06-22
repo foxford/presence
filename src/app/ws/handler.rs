@@ -9,7 +9,7 @@ use crate::{
         state::State,
         ws::{
             event::{Event, Label},
-            ConnectError, ConnectRequest, Request, Response,
+            ConnectRequest, Request, Response, UnrecoverableSessionError,
         },
     },
     authz::AuthzObject,
@@ -98,7 +98,7 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
                         error!(error = %e, "Failed to send agent.enter notification");
                         close_connection_with_message(
                             sender,
-                            Response::from(ConnectError::MessagingFailed),
+                            Response::from(UnrecoverableSessionError::MessagingFailed),
                         )
                         .await;
                         return;
@@ -124,7 +124,12 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
         },
         Ok(None) | Err(_) => {
             info!("Connection is closed (authentication timeout exceeded)");
-            close_connection_with_message(sender, Event::new(Label::AuthTimedOut)).await;
+            close_connection_with_message(
+                sender,
+                Response::from(UnrecoverableSessionError::AuthTimedOut),
+            )
+            .await;
+
             return;
         }
     };
@@ -205,7 +210,7 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
             _ = pong_expiration_interval.tick() => {
                 if ping_sent {
                     info!("Connection is closed (pong timeout exceeded)");
-                    close_connection_with_message(sender, Event::new(Label::PongTimedOut)).await;
+                    close_connection_with_message(sender, Response::from(UnrecoverableSessionError::PongTimedOut)).await;
                     break;
                 }
             }
@@ -213,8 +218,7 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
             Ok(cmd) = &mut close_rx => {
                 match cmd {
                     ConnectionCommand::Close(resp_sender) => {
-                        let event = Event::new(Label::AgentReplaced).payload(session_key.agent_id.clone());
-                        close_connection_with_message(sender, event).await;
+                        close_connection_with_message(sender, Response::from(UnrecoverableSessionError::Replaced)).await;
 
                         if let Some(resp) = resp_sender {
                             match history_manager::move_single_session(state.clone(), session_id).await {
@@ -277,10 +281,10 @@ async fn handle_authn_message<S: State>(
     message: Message,
     authn: Arc<ConfigMap>,
     state: S,
-) -> Result<(String, (SessionId, SessionKey)), ConnectError> {
+) -> Result<(String, (SessionId, SessionKey)), UnrecoverableSessionError> {
     let msg = match message {
         Message::Text(msg) => msg,
-        _ => return Err(ConnectError::UnsupportedRequest),
+        _ => return Err(UnrecoverableSessionError::UnsupportedRequest),
     };
 
     let result = serde_json::from_str::<Request>(&msg);
@@ -292,7 +296,7 @@ async fn handle_authn_message<S: State>(
         })) => {
             let agent_id = get_agent_id_from_token(token, authn, agent_label).map_err(|e| {
                 error!(error = %e, "Failed to authenticate an agent");
-                ConnectError::Unauthenticated
+                UnrecoverableSessionError::Unauthenticated
             })?;
 
             authorize_agent(state.clone(), &agent_id, &classroom_id).await?;
@@ -305,7 +309,7 @@ async fn handle_authn_message<S: State>(
         }
         Err(err) => {
             error!(error = %err, "Failed to serialize a message");
-            Err(ConnectError::SerializationFailed)
+            Err(UnrecoverableSessionError::SerializationFailed)
         }
     }
 }
@@ -314,10 +318,10 @@ async fn create_agent_session<S: State>(
     state: S,
     classroom_id: ClassroomId,
     agent_id: &AgentId,
-) -> Result<SessionId, ConnectError> {
+) -> Result<SessionId, UnrecoverableSessionError> {
     let mut conn = state.get_conn().await.map_err(|e| {
         error!(error = %e, "Failed to get db connection");
-        ConnectError::DbConnAcquisitionFailed
+        UnrecoverableSessionError::DbConnAcquisitionFailed
     })?;
 
     // Attempt to close old session on the same replica
@@ -329,7 +333,7 @@ async fn create_agent_session<S: State>(
         }
         Err(e) => {
             error!(error = %e, "Failed to terminate session: {}", &session_key);
-            return Err(ConnectError::MessagingFailed);
+            return Err(UnrecoverableSessionError::MessagingFailed);
         }
         _ => {}
     }
@@ -345,7 +349,7 @@ async fn create_agent_session<S: State>(
         InsertResult::Ok(agent_session) => Ok(agent_session.id),
         InsertResult::Error(err) => {
             error!(error = %err, "Failed to create an agent session");
-            Err(ConnectError::DbQueryFailed)
+            Err(UnrecoverableSessionError::DbQueryFailed)
         }
         InsertResult::UniqIdsConstraintError => {
             use app::api::v1::session::Response as DeleteResponse;
@@ -355,10 +359,10 @@ async fn create_agent_session<S: State>(
                 .await
                 .map_err(|e| {
                     error!(error = %e, "Failed to get replica ip");
-                    ConnectError::DbQueryFailed
+                    UnrecoverableSessionError::DbQueryFailed
                 })?;
 
-            match replica::close_connection(replica_ip.ip(), session_key).await {
+            match replica::close_connection(state.clone(), replica_ip.ip(), session_key).await {
                 Ok(DeleteResponse::DeleteSuccess) => {
                     match agent_session::InsertQuery::new(
                         agent_id,
@@ -373,22 +377,22 @@ async fn create_agent_session<S: State>(
                         InsertResult::Error(e) => {
                             // TODO: Send to sentry?
                             error!(error = %e, "Failed to create new agent session");
-                            Err(ConnectError::DbQueryFailed)
+                            Err(UnrecoverableSessionError::DbQueryFailed)
                         }
                         InsertResult::UniqIdsConstraintError => {
                             error!("Failed to create new agent session");
-                            Err(ConnectError::DbQueryFailed)
+                            Err(UnrecoverableSessionError::DbQueryFailed)
                         }
                     }
                 }
                 Err(e) => {
                     // TODO: Send to sentry?
                     error!(error = %e, "Failed to close connection on another replica");
-                    Err(ConnectError::CloseOldConnectionFailed)
+                    Err(UnrecoverableSessionError::CloseOldConnectionFailed)
                 }
                 Ok(DeleteResponse::DeleteFailure(r)) => {
                     error!(reason = %r, "Failed to delete connection on another replica");
-                    Err(ConnectError::CloseOldConnectionFailed)
+                    Err(UnrecoverableSessionError::CloseOldConnectionFailed)
                 }
             }
         }
@@ -399,7 +403,7 @@ async fn authorize_agent<S: State>(
     state: S,
     agent_id: &AgentId,
     classroom_id: &ClassroomId,
-) -> Result<(), ConnectError> {
+) -> Result<(), UnrecoverableSessionError> {
     let account_id = agent_id.as_account_id();
     let object = AuthzObject::new(&["classrooms", &classroom_id.to_string()]).into();
 
@@ -415,7 +419,7 @@ async fn authorize_agent<S: State>(
         .measure()
     {
         error!(error = %err, "Failed to authorize action");
-        return Err(ConnectError::AccessDenied);
+        return Err(UnrecoverableSessionError::AccessDenied);
     };
 
     Ok(())
@@ -464,7 +468,7 @@ mod tests {
                 .await
                 .expect_err("Unexpectedly succeeded");
 
-            assert_eq!(result, ConnectError::UnsupportedRequest);
+            assert_eq!(result, UnrecoverableSessionError::UnsupportedRequest);
         }
 
         #[tokio::test]
@@ -480,7 +484,7 @@ mod tests {
                 .await
                 .expect_err("Unexpectedly succeeded");
 
-            assert_eq!(result, ConnectError::SerializationFailed);
+            assert_eq!(result, UnrecoverableSessionError::SerializationFailed);
         }
 
         #[tokio::test]
@@ -507,7 +511,7 @@ mod tests {
                 .await
                 .expect_err("Unexpectedly succeeded");
 
-            assert_eq!(result, ConnectError::Unauthenticated);
+            assert_eq!(result, UnrecoverableSessionError::Unauthenticated);
         }
 
         #[tokio::test]
@@ -536,7 +540,7 @@ mod tests {
                 .await
                 .expect_err("Unexpectedly succeeded");
 
-            assert_eq!(result, ConnectError::AccessDenied);
+            assert_eq!(result, UnrecoverableSessionError::AccessDenied);
         }
 
         #[tokio::test]

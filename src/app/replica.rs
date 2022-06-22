@@ -1,5 +1,8 @@
 use crate::{
-    app::api::v1::session::{DeletePayload, Response},
+    app::{
+        api::v1::session::{DeletePayload, Response},
+        state::State,
+    },
     db,
     session::SessionKey,
 };
@@ -43,12 +46,15 @@ pub async fn terminate(db_pool: &PgPool, id: Uuid) -> Result<()> {
     Ok(())
 }
 
-pub async fn close_connection(replica_ip: IpAddr, session_key: SessionKey) -> Result<Response> {
+pub async fn close_connection<S: State>(
+    state: S,
+    replica_ip: IpAddr,
+    session_key: SessionKey,
+) -> Result<Response> {
     let url = format!(
         "http://{}:{}/api/v1/sessions",
         replica_ip,
-        // state.config().internal_listener_address.port()
-        3002,
+        state.config().internal_listener_address.port() // 4002,
     );
 
     info!(replica_ip = %replica_ip, "Trying to close connection on another replica");
