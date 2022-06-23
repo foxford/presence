@@ -4,12 +4,12 @@ use crate::{
         metrics::AuthzMeasure,
         nats::PRESENCE_SENDER_AGENT_ID,
         replica,
-        session_manager::Session,
+        session_manager::TerminateSession,
         session_manager::{ConnectionCommand, DeleteSession},
         state::State,
         ws::{
             event::{Event, Label},
-            ConnectRequest, Request, Response, UnrecoverableSessionError,
+            ConnectRequest, RecoverableSessionError, Request, Response, UnrecoverableSessionError,
         },
     },
     authz::AuthzObject,
@@ -33,6 +33,7 @@ use axum::{
 use futures_util::{stream::SplitSink, SinkExt, StreamExt};
 use serde::Serialize;
 use sqlx::types::time::OffsetDateTime;
+use std::time::Duration;
 use std::{str::FromStr, sync::Arc};
 use svc_agent::AgentId;
 use svc_authn::{
@@ -217,24 +218,26 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
             // Close connections
             Ok(cmd) = &mut close_rx => {
                 match cmd {
-                    ConnectionCommand::Close(resp_sender) => {
+                    ConnectionCommand::Close => {
+                        close_connection_with_message(sender, Response::from(UnrecoverableSessionError::Replaced)).await;
+                    }
+                    ConnectionCommand::CloseAndDelete(resp) => {
                         close_connection_with_message(sender, Response::from(UnrecoverableSessionError::Replaced)).await;
 
-                        if let Some(resp) = resp_sender {
-                            match history_manager::move_single_session(state.clone(), session_id).await {
-                                Ok(_) => {
-                                    resp.send(DeleteSession::Success).ok();
-                                }
-                                Err(e) => {
-                                    // TODO: Send to sentry
-                                    error!(error = %e, "Failed to move session to history");
-                                    resp.send(DeleteSession::Failure).ok();
-                                }
+                        match history_manager::move_single_session(state.clone(), session_id).await {
+                            Ok(_) => {
+                                resp.send(DeleteSession::Success).ok();
+                            }
+                            Err(e) => {
+                                // TODO: Send to sentry
+                                error!(error = %e, "Failed to move session to history");
+                                resp.send(DeleteSession::Failure).ok();
                             }
                         }
                     }
                     ConnectionCommand::Terminate => {
-                        unimplemented!()
+                        close_connection_with_message(sender, Response::from(RecoverableSessionError::Terminated)).await;
+                        tokio::time::sleep(Duration::from_secs(10)).await;
                     }
                 }
 
@@ -257,7 +260,7 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
         return;
     }
 
-    if let Err(e) = state.terminate_session(session_key.clone(), false).await {
+    if let Err(e) = state.terminate_session(session_key.clone()).await {
         error!(error = %e, "Failed to terminate session_key: {}", session_key);
         return;
     }
@@ -267,14 +270,14 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
     }
 }
 
-/// Closes the WebSocket connection with an error message
+/// Closes the WebSocket connection with a message
 async fn close_connection_with_message<T: Serialize>(
     mut sender: SplitSink<WebSocket, Message>,
     resp: T,
 ) {
     let resp = serialize_to_json(&resp);
-    let _ = sender.send(Message::Text(resp)).await;
-    let _ = sender.close().await;
+    sender.send(Message::Text(resp)).await.ok();
+    sender.close().await.ok();
 }
 
 async fn handle_authn_message<S: State>(
@@ -327,8 +330,8 @@ async fn create_agent_session<S: State>(
     // Attempt to close old session on the same replica
     let session_key = SessionKey::new(agent_id.clone(), classroom_id);
     // If the session is found, don't create a new session and return the previous id
-    match state.terminate_session(session_key.clone(), true).await {
-        Ok(Session::Found(session_id)) => {
+    match state.terminate_session(session_key.clone()).await {
+        Ok(TerminateSession::Found(session_id)) => {
             return Ok(session_id);
         }
         Err(e) => {

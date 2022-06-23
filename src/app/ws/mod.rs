@@ -58,7 +58,6 @@ enum UnrecoverableSessionError {
     Replaced,
 }
 
-#[allow(dead_code)]
 enum RecoverableSessionError {
     Terminated,
 }

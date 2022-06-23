@@ -1,17 +1,17 @@
+use crate::app::state::State;
 use crate::{
     app::{
         api::AppResult,
         error::{ErrorExt, ErrorKind},
-        session_manager::{ConnectionCommand, DeleteSession},
+        session_manager::DeleteSession,
     },
-    session::{SessionKey, SessionMap},
+    session::SessionKey,
 };
 use anyhow::Context;
 use axum::{body, response::IntoResponse, Extension, Json};
 use http::StatusCode;
 use serde_derive::{Deserialize, Serialize};
 use std::fmt;
-use tokio::sync::oneshot;
 use tracing::error;
 
 #[derive(Deserialize, Serialize)]
@@ -31,8 +31,7 @@ pub enum Response {
 pub enum Reason {
     NotFound,
     FailedToDelete,
-    FailedToSendMessage,
-    FailedToReceiveResponse,
+    MessagingFailed,
 }
 
 impl fmt::Display for Reason {
@@ -40,64 +39,40 @@ impl fmt::Display for Reason {
         let reason = match self {
             Reason::NotFound => "Not found",
             Reason::FailedToDelete => "Failed to delete from DB",
-            Reason::FailedToSendMessage => "Failed to send message",
-            Reason::FailedToReceiveResponse => "Failed to receive response",
+            Reason::MessagingFailed => "Messaging failed",
         };
         write!(f, "{}", reason)
     }
 }
 
-pub async fn delete(
-    Extension(sessions): Extension<SessionMap>,
+pub async fn delete<S: State>(
+    Extension(state): Extension<S>,
     Json(payload): Json<DeletePayload>,
 ) -> AppResult {
-    do_delete(sessions, payload).await
+    do_delete(state, payload).await
 }
 
-async fn do_delete(sessions: SessionMap, payload: DeletePayload) -> AppResult {
-    let (status, resp) = match sessions.remove(&payload.session_key) {
-        Some((_, sender)) => {
-            let (tx, rx) = oneshot::channel::<DeleteSession>();
-
-            match sender.send(ConnectionCommand::Close(Some(tx))) {
-                Ok(_) => {
-                    match rx.await {
-                        Ok(DeleteSession::Success) => {
-                            return Ok(Json(Response::DeleteSuccess).into_response())
-                        }
-                        Ok(DeleteSession::Failure) => (
-                            StatusCode::UNPROCESSABLE_ENTITY,
-                            Response::DeleteFailure(Reason::FailedToDelete),
-                        ),
-                        Err(e) => {
-                            // TODO: Send to sentry
-                            error!(error = %e, "Failed to receive response");
-
-                            (
-                                StatusCode::UNPROCESSABLE_ENTITY,
-                                Response::DeleteFailure(Reason::FailedToReceiveResponse),
-                            )
-                        }
-                    }
-                }
-                Err(_) => {
-                    // TODO: Send to sentry
-                    error!("Failed to send close command to connection");
-
-                    (
-                        StatusCode::UNPROCESSABLE_ENTITY,
-                        Response::DeleteFailure(Reason::FailedToSendMessage),
-                    )
-                }
-            }
-        }
-        None => (
+async fn do_delete<S: State>(state: S, payload: DeletePayload) -> AppResult {
+    let (status, resp) = match state.delete_session(payload.session_key).await {
+        Ok(DeleteSession::Success) => return Ok(Json(Response::DeleteSuccess).into_response()),
+        Ok(DeleteSession::Failure) => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            Response::DeleteFailure(Reason::FailedToDelete),
+        ),
+        Ok(DeleteSession::NotFound) => (
             StatusCode::NOT_FOUND,
             Response::DeleteFailure(Reason::NotFound),
         ),
-    };
+        Err(e) => {
+            // TODO: Send to sentry
+            error!(error = %e, "Failed to receive response");
 
-    // TODO: Send error to sentry
+            (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                Response::DeleteFailure(Reason::MessagingFailed),
+            )
+        }
+    };
 
     let body = serde_json::to_string(&resp)
         .context("Failed to serialize response")

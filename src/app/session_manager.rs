@@ -1,43 +1,51 @@
-use crate::session::{SessionId, SessionKey, SessionMap, SessionValue};
+use crate::session::{SessionId, SessionKey};
+use std::collections::HashMap;
 use tokio::{
     sync::{mpsc, oneshot, watch},
     task::JoinHandle,
 };
 
-#[derive(Debug)]
-pub enum Session {
-    NotFound,
-    Found(SessionId),
-    Skip,
-}
+type SessionValue = (SessionId, oneshot::Sender<ConnectionCommand>);
 
 #[derive(Debug)]
 pub enum SessionCommand {
     Register(SessionKey, SessionValue),
-    Terminate(SessionKey, Option<oneshot::Sender<Session>>),
+    // Only closes connections
+    Terminate(SessionKey, oneshot::Sender<TerminateSession>),
+    // Closes connections and removes them from DB
+    Delete(SessionKey, oneshot::Sender<DeleteSession>),
 }
 
 #[derive(Debug)]
 pub enum ConnectionCommand {
-    Close(Option<oneshot::Sender<DeleteSession>>),
-    #[allow(dead_code)]
+    Close,
+    CloseAndDelete(oneshot::Sender<DeleteSession>),
     Terminate,
+}
+
+#[derive(Debug)]
+pub enum TerminateSession {
+    NotFound,
+    Found(SessionId),
 }
 
 #[derive(Debug)]
 pub enum DeleteSession {
     Success,
     Failure,
+    NotFound,
 }
 
 /// Manages agent sessions by handling incoming commands.
 /// Also, closes old agent sessions.
 pub fn run(
-    sessions: SessionMap,
+    // sessions: SessionMap,
     mut cmd_rx: mpsc::UnboundedReceiver<SessionCommand>,
     mut shutdown_rx: watch::Receiver<()>,
 ) -> JoinHandle<()> {
     tokio::task::spawn(async move {
+        let mut sessions = HashMap::new();
+
         loop {
             tokio::select! {
                 Some(cmd) = cmd_rx.recv() => {
@@ -45,22 +53,37 @@ pub fn run(
                         SessionCommand::Register(session_key, value) => {
                             sessions.insert(session_key, value);
                         }
+                        // Only closes connections
                         SessionCommand::Terminate(session_key, resp) => {
-                            if let Some((session_id, cmd)) = sessions.remove(&session_key) {
-                                if cmd.send(ConnectionCommand::Close(None)).is_ok() {
-                                    resp.and_then(|s| s.send(Session::Found(session_id)).ok());
+                            match sessions.remove(&session_key) {
+                                Some((session_id, cmd)) => {
+                                    if cmd.send(ConnectionCommand::Close).is_ok() {
+                                        resp.send(TerminateSession::Found(session_id)).ok();
+                                    }
                                 }
-
-                                continue;
+                                None => {
+                                    resp.send(TerminateSession::NotFound).ok();
+                                }
                             }
-
-                            resp.and_then(|s| s.send(Session::NotFound).ok());
+                        }
+                        // Closes connections and removes them from DB
+                        SessionCommand::Delete(session_key, resp) => {
+                            match sessions.remove(&session_key) {
+                                Some((_, cmd)) => {
+                                    cmd.send(ConnectionCommand::CloseAndDelete(resp)).ok();
+                                }
+                                None => {
+                                    resp.send(DeleteSession::NotFound).ok();
+                                }
+                            }
                         }
                     }
                 }
                 // Graceful shutdown
                 _ = shutdown_rx.changed() => {
-                    // TODO: Send `ConnectionCommand::Terminate`
+                    for (_, (_, cmd)) in sessions {
+                        cmd.send(ConnectionCommand::Terminate).ok();
+                    }
                     break;
                 }
             }

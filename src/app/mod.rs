@@ -1,7 +1,6 @@
 use crate::{
     app::{metrics::Metrics, state::AppState},
     authz::AuthzCache,
-    session::SessionMap,
 };
 use anyhow::{Context, Result};
 use futures_util::StreamExt;
@@ -67,11 +66,11 @@ pub async fn run(db: PgPool, authz_cache: Option<AuthzCache>) -> Result<()> {
     let (shutdown_tx, shutdown_rx) = watch::channel(());
 
     // Keeps all active sessions on a replica
-    let sessions = SessionMap::new();
-    let session_manager = session_manager::run(sessions.clone(), cmd_rx, shutdown_rx.clone());
+    // let sessions = SessionMap::new();
+    let session_manager = session_manager::run(cmd_rx, shutdown_rx.clone());
 
     let router = router::new(state.clone(), config.authn.clone());
-    let internal_router = router::new_internal(sessions);
+    let internal_router = router::new_internal(state.clone());
 
     // Public API
     let mut shutdown_server_rx = shutdown_rx.clone();

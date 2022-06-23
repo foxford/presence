@@ -1,10 +1,7 @@
-use crate::{
-    app::{
-        api::v1,
-        state::{AppState, State},
-        ws,
-    },
-    session::SessionMap,
+use crate::app::{
+    api::v1,
+    state::{AppState, State},
+    ws,
 };
 use axum::{
     extract::Extension,
@@ -41,9 +38,9 @@ fn ws_router() -> Router {
     Router::new().route("/ws", get(ws::handler::<AppState>))
 }
 
-pub fn new_internal(sessions: SessionMap) -> Router {
+pub fn new_internal<S: State>(state: S) -> Router {
     Router::new()
-        .route("/api/v1/sessions", delete(v1::session::delete))
-        .layer(Extension(sessions))
+        .route("/api/v1/sessions", delete(v1::session::delete::<AppState>))
+        .layer(Extension(state))
         .layer(LogLayer::new())
 }

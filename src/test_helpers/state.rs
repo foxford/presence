@@ -2,7 +2,7 @@ use crate::{
     app::{
         metrics::Metrics,
         nats::NatsClient,
-        session_manager::{ConnectionCommand, Session},
+        session_manager::{ConnectionCommand, TerminateSession},
         state::State,
     },
     classroom::ClassroomId,
@@ -104,8 +104,8 @@ impl State for TestState {
         Ok(rx)
     }
 
-    async fn terminate_session(&self, _: SessionKey, _: bool) -> Result<Session> {
-        Ok(Session::NotFound)
+    async fn terminate_session(&self, _: SessionKey, _: bool) -> Result<TerminateSession> {
+        Ok(TerminateSession::NotFound)
     }
 
     async fn get_conn(&self) -> Result<PoolConnection<Postgres>> {

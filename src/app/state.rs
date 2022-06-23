@@ -2,7 +2,7 @@ use crate::{
     app::{
         metrics::Metrics,
         nats::NatsClient,
-        session_manager::{ConnectionCommand, Session, SessionCommand},
+        session_manager::{ConnectionCommand, DeleteSession, SessionCommand, TerminateSession},
     },
     config::Config,
     session::{SessionId, SessionKey},
@@ -26,7 +26,8 @@ pub trait State: Send + Sync + Clone + 'static {
         session_key: SessionKey,
         session_id: SessionId,
     ) -> Result<oneshot::Receiver<ConnectionCommand>>;
-    async fn terminate_session(&self, session_key: SessionKey, return_id: bool) -> Result<Session>;
+    async fn terminate_session(&self, session_key: SessionKey) -> Result<TerminateSession>;
+    async fn delete_session(&self, session_key: SessionKey) -> Result<DeleteSession>;
     async fn get_conn(&self) -> Result<PoolConnection<Postgres>>;
     fn nats_client(&self) -> &dyn NatsClient;
 }
@@ -101,21 +102,22 @@ impl State for AppState {
         Ok(rx)
     }
 
-    async fn terminate_session(&self, session_key: SessionKey, return_id: bool) -> Result<Session> {
-        if return_id {
-            let (tx, rx) = oneshot::channel::<Session>();
-            self.inner
-                .cmd_sender
-                .send(SessionCommand::Terminate(session_key, Some(tx)))?;
-
-            return rx.await.context("failed to receive previous session id");
-        }
-
+    async fn terminate_session(&self, session_key: SessionKey) -> Result<TerminateSession> {
+        let (tx, rx) = oneshot::channel::<TerminateSession>();
         self.inner
             .cmd_sender
-            .send(SessionCommand::Terminate(session_key, None))?;
+            .send(SessionCommand::Terminate(session_key, tx))?;
 
-        Ok(Session::Skip)
+        rx.await.context("Failed to receive previous session id")
+    }
+
+    async fn delete_session(&self, session_key: SessionKey) -> Result<DeleteSession> {
+        let (tx, rx) = oneshot::channel::<DeleteSession>();
+        self.inner
+            .cmd_sender
+            .send(SessionCommand::Delete(session_key, tx))?;
+
+        rx.await.context("Failed to receive a response of deletion")
     }
 
     async fn get_conn(&self) -> Result<PoolConnection<Postgres>> {
