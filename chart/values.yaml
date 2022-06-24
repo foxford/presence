@@ -51,7 +51,7 @@ config:
     ping_interval: 30s
     pong_expiration_interval: 5s
     authentication_timeout: 5s
-    check_old_connection_interval: 5s
+    wait_before_close_connection: 10s
 
 env:
   RUST_LOG: warn,presence=info,svc_utils=info,svc_utils::metrics=warn

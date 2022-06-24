@@ -27,7 +27,7 @@ pub struct WebSocketConfig {
     #[serde(with = "humantime_serde")]
     pub authentication_timeout: Duration,
     #[serde(with = "humantime_serde")]
-    pub check_old_connection_interval: Duration,
+    pub wait_before_close_connection: Duration,
 }
 
 #[derive(Clone, Debug, Deserialize)]

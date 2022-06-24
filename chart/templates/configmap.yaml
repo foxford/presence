@@ -18,7 +18,7 @@ data:
     ping_interval = {{ .Values.config.websocket.ping_interval | quote }}
     pong_expiration_interval = {{ .Values.config.websocket.pong_expiration_interval | quote }}
     authentication_timeout = {{ .Values.config.websocket.authentication_timeout | quote }}
-    check_old_connection_interval = {{ .Values.config.websocket.check_old_connection_interval | quote }}
+    wait_before_close_connection = {{ .Values.config.websocket.wait_before_close_connection | quote }}
 
     [sentry]
     dsn = {{ .Values.sentry.dsn | quote }}

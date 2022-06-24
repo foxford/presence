@@ -33,7 +33,6 @@ use axum::{
 use futures_util::{stream::SplitSink, SinkExt, StreamExt};
 use serde::Serialize;
 use sqlx::types::time::OffsetDateTime;
-use std::time::Duration;
 use std::{str::FromStr, sync::Arc};
 use svc_agent::AgentId;
 use svc_authn::{
@@ -138,6 +137,8 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
     state.metrics().ws_connection_total().inc();
 
     let mut ping_sent = false;
+    // Mark a connection as terminating on graceful shutdown
+    let mut connect_terminating = false;
 
     // Ping/Pong intervals
     let mut ping_interval = interval(state.config().websocket.ping_interval);
@@ -216,7 +217,7 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
                 }
             }
             // Close connections
-            Ok(cmd) = &mut close_rx => {
+            Ok(cmd) = &mut close_rx, if !connect_terminating => {
                 match cmd {
                     ConnectionCommand::Close => {
                         close_connection_with_message(sender, Response::from(UnrecoverableSessionError::Replaced)).await;
@@ -236,8 +237,11 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
                         }
                     }
                     ConnectionCommand::Terminate => {
-                        close_connection_with_message(sender, Response::from(RecoverableSessionError::Terminated)).await;
-                        tokio::time::sleep(Duration::from_secs(10)).await;
+                        connect_terminating = true;
+                        let msg = serialize_to_json(&Response::from(RecoverableSessionError::Terminated));
+                        sender.send(Message::Text(msg)).await.ok();
+
+                        continue;
                     }
                 }
 
@@ -250,6 +254,11 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
     }
 
     state.metrics().ws_connection_total().dec();
+
+    // Skip next steps if the connection is terminating
+    if connect_terminating {
+        return;
+    }
 
     let event = Event::new(Label::AgentLeave).payload(session_key.agent_id.clone());
     if let Err(e) = state

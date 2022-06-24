@@ -79,6 +79,13 @@ pub async fn run(db: PgPool, authz_cache: Option<AuthzCache>) -> Result<()> {
             .serve(router.into_make_service())
             .with_graceful_shutdown(async move {
                 shutdown_server_rx.changed().await.ok();
+
+                let wait_before_close_connection = config.websocket.wait_before_close_connection;
+                info!(
+                    "Waiting for {}s before closing WebSocket connections",
+                    wait_before_close_connection.as_secs()
+                );
+                tokio::time::sleep(wait_before_close_connection).await;
             }),
     );
 

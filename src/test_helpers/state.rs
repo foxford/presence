@@ -2,7 +2,7 @@ use crate::{
     app::{
         metrics::Metrics,
         nats::NatsClient,
-        session_manager::{ConnectionCommand, TerminateSession},
+        session_manager::{ConnectionCommand, DeleteSession, TerminateSession},
         state::State,
     },
     classroom::ClassroomId,
@@ -52,7 +52,7 @@ impl TestState {
                     ping_interval: Default::default(),
                     pong_expiration_interval: Default::default(),
                     authentication_timeout: Default::default(),
-                    check_old_connection_interval: Default::default(),
+                    wait_before_close_connection: Default::default(),
                 },
                 authz: Default::default(),
                 svc_audience: SVC_AUDIENCE.to_string(),
@@ -104,8 +104,12 @@ impl State for TestState {
         Ok(rx)
     }
 
-    async fn terminate_session(&self, _: SessionKey, _: bool) -> Result<TerminateSession> {
+    async fn terminate_session(&self, _: SessionKey) -> Result<TerminateSession> {
         Ok(TerminateSession::NotFound)
+    }
+
+    async fn delete_session(&self, _: SessionKey) -> Result<DeleteSession> {
+        Ok(DeleteSession::NotFound)
     }
 
     async fn get_conn(&self) -> Result<PoolConnection<Postgres>> {
