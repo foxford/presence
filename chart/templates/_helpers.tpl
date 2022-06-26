@@ -35,13 +35,11 @@ Common labels
 */}}
 {{- define "presence.labels" -}}
 helm.sh/chart: {{ include "presence.chart" . }}
-app.kubernetes.io/name: {{ include "presence.name" . }}
-app.kubernetes.io/instance: {{ .Release.Name }}
+{{ include "presence.selectorLabels" . }}
 {{- if .Chart.AppVersion }}
 app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
 {{- end }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
-k8s-app: {{ include "presence.name" . }}
 {{- end }}
 
 {{/*
@@ -50,7 +48,6 @@ Selector labels
 {{- define "presence.selectorLabels" -}}
 app.kubernetes.io/name: {{ include "presence.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
-app: {{ include "presence.name" . }}
 {{- end }}
 
 {{/*
