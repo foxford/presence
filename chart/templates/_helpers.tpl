@@ -6,51 +6,6 @@ Expand the name of the chart.
 {{- end }}
 
 {{/*
-Service name.
-*/}}
-{{- define "presence.serviceName" -}}
-{{- list (default .Chart.Name .Values.nameOverride | trunc 63 | trimSuffix "-") "service" | join "-" }}
-{{- end }}
-
-
-{{/*
-Short namespace.
-*/}}
-{{- define "presence.shortNamespace" -}}
-{{- $shortns := regexSplit "-" .Release.Namespace -1 | first }}
-{{- if has $shortns (list "production" "p") }}
-{{- else }}
-{{- $shortns }}
-{{- end }}
-{{- end }}
-
-{{/*
-Namespace in ingress path.
-converts as follows:
-- testing01 -> t01
-- staging01-classroom-ng -> s01/classroom-ng
-- producion-webinar-ng -> webinar-foxford
-*/}}
-{{- define "presence.ingressPathNamespace" -}}
-{{- $ns_head := regexSplit "-" .Release.Namespace -1 | first }}
-{{- $ns_tail := regexSplit "-" .Release.Namespace -1 | rest | join "-" }}
-{{- if eq $ns_head "production" }}
-{{- regexReplaceAll "(.*)-ng(.*)" $ns_tail "${1}-foxford${2}" }}
-{{- else }}
-{{- $v := list (regexReplaceAll "(.)[^\\d]*(.+)" $ns_head "${1}${2}") $ns_tail | compact | join "/" }}
-{{- regexReplaceAll "(.*)-ng(.*)" $v "${1}-foxford${2}" }}
-{{- end }}
-{{- end }}
-
-{{/*
-Ingress path.
-*/}}
-{{- define "presence.ingressPath" -}}
-{{- $shortns := regexSplit "-" .Release.Namespace -1 | first }}
-{{- list "" (include "presence.ingressPathNamespace" .) (include "presence.name" .) | join "/" }}
-{{- end }}
-
-{{/*
 Create a default fully qualified app name.
 We truncate at 63 chars because some Kubernetes name fields are limited to this (by the DNS naming spec).
 If release name contains chart name it will be used as a full name.
@@ -99,14 +54,38 @@ app: {{ include "presence.name" . }}
 {{- end }}
 
 {{/*
-Create the name of the service account to use
+Short namespace.
 */}}
-{{- define "presence.serviceAccountName" -}}
-{{- if .Values.serviceAccount.create }}
-{{- default (include "presence.fullname" .) .Values.serviceAccount.name }}
+{{- define "presence.shortNamespace" -}}
+{{- $shortns := regexSplit "-" .Release.Namespace -1 | first }}
+{{- if has $shortns (list "production" "p") }}
 {{- else }}
-{{- default "default" .Values.serviceAccount.name }}
+{{- $shortns }}
 {{- end }}
+{{- end }}
+
+{{/*
+Namespace in ingress path.
+converts as follows:
+- testing01 -> t01
+- staging01-classroom-ng -> s01/classroom-foxford
+- producion-webinar-ng -> webinar-foxford
+*/}}
+{{- define "presence.ingressPathNamespace" -}}
+{{- $ns_head := regexSplit "-" .Release.Namespace -1 | first }}
+{{- $ns_tail := regexSplit "-" .Release.Namespace -1 | rest | join "-" | replace "ng" "foxford" }}
+{{- if has $ns_head (list "production" "p") }}
+{{- $ns_tail }}
+{{- else }}
+{{- list (regexReplaceAll "(.)[^\\d]*(.+)" $ns_head "${1}${2}") $ns_tail | compact | join "/" }}
+{{- end }}
+{{- end }}
+
+{{/*
+Ingress path.
+*/}}
+{{- define "presence.ingressPath" -}}
+{{- list "" (include "presence.ingressPathNamespace" .) (include "presence.fullname" .) | join "/" }}
 {{- end }}
 
 {{/*

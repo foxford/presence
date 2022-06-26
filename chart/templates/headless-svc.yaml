@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "presence.fullname" . }}-headless
+  labels:
+    {{- include "presence.labels" . | nindent 4 }}
+spec:
+  selector:
+    {{- include "presence.selectorLabels" . | nindent 4 }}
+  clusterIP: None

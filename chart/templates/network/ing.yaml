@@ -1,7 +1,7 @@
 apiVersion: extensions/v1beta1
 kind: Ingress
 metadata:
-  name: {{ include "presence.name" . }}-ingress
+  name: {{ include "presence.fullname" . }}
   annotations:
     kubernetes.io/ingress.class: nginx
     nginx.ingress.kubernetes.io/rewrite-target: /$2
@@ -17,5 +17,5 @@ spec:
           - path: {{ include "presence.ingressPath" . }}(/|$)(.*)
             pathType: Prefix
             backend:
-              serviceName: {{ include "presence.serviceName" $ }}
-              servicePort: {{ get .Values.service.ports "http" }}
+              serviceName: {{ include "presence.fullname" . }}-cluster
+              servicePort: {{ get .Values.clusterService.ports "http" }}
