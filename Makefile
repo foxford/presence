@@ -1,4 +1,4 @@
-.PHONY: deps db udeps
+.PHONY: svc deps udeps prepare check nats run
 
 svc:
 	docker-compose -p presence -f docker/development/docker-compose.yml up
@@ -20,3 +20,6 @@ check:
 
 nats:
 	nats stream add classrooms-reliable --creds=nats.creds --subjects='classrooms.>' --storage=memory --replicas=1 --retention=limits --discard=old
+
+run:
+	cargo run --features dotenv,local_ip

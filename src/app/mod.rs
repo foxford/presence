@@ -11,12 +11,13 @@ use tokio::sync::{mpsc, watch};
 use tracing::{error, info};
 
 mod api;
-mod error;
 mod history_manager;
 mod replica;
 mod router;
 mod ws;
 
+pub mod cluster_ip;
+pub mod error;
 pub mod metrics;
 pub mod nats;
 pub mod session_manager;

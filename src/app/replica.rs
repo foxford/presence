@@ -13,7 +13,7 @@ use tracing::info;
 use uuid::Uuid;
 
 pub async fn register(db_pool: &PgPool, label: String) -> Result<Uuid> {
-    let ip = local_ip_address::local_ip().context("Failed to get local ip")?;
+    let ip = super::cluster_ip::get_ip(&label).await?;
     info!("Replica IP: {}", ip);
 
     let mut conn = db_pool

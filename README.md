@@ -44,3 +44,9 @@ cp docker/development/nats/nats.conf{.example,}
 $ nats stream add classrooms-reliable --creds=nats.creds --subjects='classrooms.>' --storage=memory --replicas=1 --retention=limits --discard=old
 # Next "Enter" for all questions 
 ```
+
+## Run the project
+
+```shell
+$ make run
+```
