@@ -1,9 +1,9 @@
-use crate::app::state::State;
 use crate::{
     app::{
         api::AppResult,
-        error::{ErrorExt, ErrorKind},
+        error::{Error, ErrorExt, ErrorKind},
         session_manager::DeleteSession,
+        state::State,
     },
     session::SessionKey,
 };
@@ -64,8 +64,8 @@ async fn do_delete<S: State>(state: S, payload: DeletePayload) -> AppResult {
             Response::DeleteFailure(Reason::NotFound),
         ),
         Err(e) => {
-            // TODO: Send to sentry
-            error!(error = %e, "Failed to receive response");
+            error!(error = %e, "Failed to receive response from another replica");
+            Error::new(ErrorKind::ReceivingResponseFailed, e).notify_sentry();
 
             (
                 StatusCode::UNPROCESSABLE_ENTITY,

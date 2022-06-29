@@ -22,7 +22,7 @@ use crate::{
     session::SessionId,
     session::SessionKey,
 };
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use axum::{
     extract::{
         ws::{Message, WebSocket},
@@ -39,8 +39,9 @@ use svc_authn::{
     jose::ConfigMap, token::jws_compact::extract::decode_jws_compact_with_config, AccountId,
     Authenticable,
 };
+use svc_error::extension::sentry;
 use tokio::time::{interval, timeout, MissedTickBehavior};
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 pub async fn handler<S: State>(
     ws: WebSocketUpgrade,
@@ -70,7 +71,7 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
                         Ok(rx) => rx,
                         Err(e) => {
                             error!(error = %e, "Failed to register session_key: {}", session_key);
-                            close_connection_with_message(sender, Response::from(e)).await;
+                            close_conn_with_msg(sender, Response::from(e)).await;
                             return;
                         }
                     };
@@ -84,7 +85,7 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
                         Ok(rx) => rx,
                         Err(e) => {
                             error!(error = ?e);
-                            close_connection_with_message(sender, Response::from(e)).await;
+                            close_conn_with_msg(sender, Response::from(e)).await;
                             return;
                         }
                     };
@@ -96,7 +97,7 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
                         .publish_event(session_key.clone(), event)
                     {
                         error!(error = %e, "Failed to send agent.enter notification");
-                        close_connection_with_message(
+                        close_conn_with_msg(
                             sender,
                             Response::from(UnrecoverableSessionError::MessagingFailed),
                         )
@@ -111,20 +112,21 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
                     (session_id, session_key, nats_rx, close_rx)
                 }
                 Err(e) => {
-                    info!("Connection is closed (unsuccessful request)");
+                    error!(error = ?e, "Connection is closed (unsuccessful request)");
                     state.metrics().ws_connection_error().inc();
-                    close_connection_with_message(sender, Response::from(e)).await;
+                    close_conn_with_msg(sender, Response::from(e)).await;
                     return;
                 }
             },
             Err(e) => {
                 error!(error = %e, "An error occurred when receiving an authn message");
+                send_to_sentry(e.into());
                 return;
             }
         },
         Ok(None) | Err(_) => {
-            info!("Connection is closed (authentication timeout exceeded)");
-            close_connection_with_message(
+            warn!("Connection is closed (authentication timeout exceeded)");
+            close_conn_with_msg(
                 sender,
                 Response::from(UnrecoverableSessionError::AuthTimedOut),
             )
@@ -165,10 +167,12 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
                     Ok(s) => {
                         if let Err(e) = sender.send(Message::Text(s)).await {
                             error!(error = ?e, "Failed to send notification");
+                            send_to_sentry(e.into());
                         }
                     },
                     Err(e)=> {
                         error!(error = ?e, "Conversion to str failed");
+                        send_to_sentry(e.into());
                     }
                 }
             }
@@ -190,6 +194,7 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
                     },
                     Err(e) => {
                         error!(error = %e, "An error occurred when receiving a message");
+                        send_to_sentry(e.into());
 
                         break;
                     },
@@ -201,7 +206,7 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
             // Ping authenticated clients with interval
             _ = ping_interval.tick() => {
                 if sender.send(Message::Ping(Vec::new())).await.is_err() {
-                    info!("An agent disconnected (ping not sent)");
+                    warn!("An agent disconnected (ping not sent)");
                     break;
                 }
 
@@ -211,8 +216,8 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
             // Close connection if pong exceeded timeout
             _ = pong_expiration_interval.tick() => {
                 if ping_sent {
-                    info!("Connection is closed (pong timeout exceeded)");
-                    close_connection_with_message(sender, Response::from(UnrecoverableSessionError::PongTimedOut)).await;
+                    warn!("Connection is closed (pong timeout exceeded)");
+                    close_conn_with_msg(sender, Response::from(UnrecoverableSessionError::PongTimedOut)).await;
                     break;
                 }
             }
@@ -220,18 +225,18 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
             Ok(cmd) = &mut close_rx, if !connect_terminating => {
                 match cmd {
                     ConnectionCommand::Close => {
-                        close_connection_with_message(sender, Response::from(UnrecoverableSessionError::Replaced)).await;
+                        close_conn_with_msg(sender, Response::from(UnrecoverableSessionError::Replaced)).await;
                     }
                     ConnectionCommand::CloseAndDelete(resp) => {
-                        close_connection_with_message(sender, Response::from(UnrecoverableSessionError::Replaced)).await;
+                        close_conn_with_msg(sender, Response::from(UnrecoverableSessionError::Replaced)).await;
 
                         match history_manager::move_single_session(state.clone(), session_id).await {
                             Ok(_) => {
                                 resp.send(DeleteSession::Success).ok();
                             }
                             Err(e) => {
-                                // TODO: Send to sentry
                                 error!(error = %e, "Failed to move session to history");
+                                send_to_sentry(e);
                                 resp.send(DeleteSession::Failure).ok();
                             }
                         }
@@ -266,24 +271,30 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
         .publish_event(session_key.clone(), event)
     {
         error!(error = %e, "Failed to send agent.leave notification");
+        send_to_sentry(e);
         return;
     }
 
     if let Err(e) = state.terminate_session(session_key.clone()).await {
         error!(error = %e, "Failed to terminate session_key: {}", session_key);
+        send_to_sentry(e);
         return;
     }
 
-    if let Err(err) = history_manager::move_single_session(state, session_id).await {
-        error!(error = %err, "Failed to move session to history");
+    if let Err(e) = history_manager::move_single_session(state, session_id).await {
+        error!(error = %e, "Failed to move session to history");
+        send_to_sentry(e);
+    }
+}
+
+fn send_to_sentry(error: anyhow::Error) {
+    if let Err(e) = sentry::send(Arc::new(error)) {
+        error!(error = %e, "Failed to send error to sentry");
     }
 }
 
 /// Closes the WebSocket connection with a message
-async fn close_connection_with_message<T: Serialize>(
-    mut sender: SplitSink<WebSocket, Message>,
-    resp: T,
-) {
+async fn close_conn_with_msg<T: Serialize>(mut sender: SplitSink<WebSocket, Message>, resp: T) {
     let resp = serialize_to_json(&resp);
     sender.send(Message::Text(resp)).await.ok();
     sender.close().await.ok();
@@ -307,7 +318,7 @@ async fn handle_authn_message<S: State>(
             agent_label,
         })) => {
             let agent_id = get_agent_id_from_token(token, authn, agent_label).map_err(|e| {
-                error!(error = %e, "Failed to authenticate an agent");
+                warn!(error = %e, "Failed to authenticate an agent");
                 UnrecoverableSessionError::Unauthenticated
             })?;
 
@@ -319,8 +330,9 @@ async fn handle_authn_message<S: State>(
                 (session_id, SessionKey::new(agent_id, classroom_id)),
             ))
         }
-        Err(err) => {
-            error!(error = %err, "Failed to serialize a message");
+        Err(e) => {
+            error!(error = %e, "Failed to serialize a message");
+            send_to_sentry(e.into());
             Err(UnrecoverableSessionError::SerializationFailed)
         }
     }
@@ -333,6 +345,7 @@ async fn create_agent_session<S: State>(
 ) -> Result<SessionId, UnrecoverableSessionError> {
     let mut conn = state.get_conn().await.map_err(|e| {
         error!(error = %e, "Failed to get db connection");
+        send_to_sentry(e);
         UnrecoverableSessionError::DbConnAcquisitionFailed
     })?;
 
@@ -345,6 +358,7 @@ async fn create_agent_session<S: State>(
         }
         Err(e) => {
             error!(error = %e, "Failed to terminate session: {}", &session_key);
+            send_to_sentry(e);
             return Err(UnrecoverableSessionError::MessagingFailed);
         }
         _ => {}
@@ -359,8 +373,9 @@ async fn create_agent_session<S: State>(
 
     match insert_query.execute(&mut conn).await {
         InsertResult::Ok(agent_session) => Ok(agent_session.id),
-        InsertResult::Error(err) => {
-            error!(error = %err, "Failed to create an agent session");
+        InsertResult::Error(e) => {
+            error!(error = %e, "Failed to create an agent session");
+            send_to_sentry(e.into());
             Err(UnrecoverableSessionError::DbQueryFailed)
         }
         InsertResult::UniqIdsConstraintError => {
@@ -371,6 +386,7 @@ async fn create_agent_session<S: State>(
                 .await
                 .map_err(|e| {
                     error!(error = %e, "Failed to get replica ip");
+                    send_to_sentry(e.into());
                     UnrecoverableSessionError::DbQueryFailed
                 })?;
 
@@ -387,23 +403,30 @@ async fn create_agent_session<S: State>(
                     {
                         InsertResult::Ok(session) => Ok(session.id),
                         InsertResult::Error(e) => {
-                            // TODO: Send to sentry?
                             error!(error = %e, "Failed to create new agent session");
+                            send_to_sentry(e.into());
                             Err(UnrecoverableSessionError::DbQueryFailed)
                         }
                         InsertResult::UniqIdsConstraintError => {
-                            error!("Failed to create new agent session");
+                            error!("Failed to create new agent session due to unique constraint");
+                            send_to_sentry(anyhow!(
+                                "Failed to create new agent session due to unique constraint"
+                            ));
                             Err(UnrecoverableSessionError::DbQueryFailed)
                         }
                     }
                 }
                 Err(e) => {
-                    // TODO: Send to sentry?
                     error!(error = %e, "Failed to close connection on another replica");
+                    send_to_sentry(e);
                     Err(UnrecoverableSessionError::CloseOldConnectionFailed)
                 }
                 Ok(DeleteResponse::DeleteFailure(r)) => {
                     error!(reason = %r, "Failed to delete connection on another replica");
+                    send_to_sentry(anyhow!(
+                        "Failed to delete connection on another replica, reason = {}",
+                        r
+                    ));
                     Err(UnrecoverableSessionError::CloseOldConnectionFailed)
                 }
             }

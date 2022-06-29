@@ -1,5 +1,9 @@
 use crate::{
-    app::{metrics::Metrics, state::AppState},
+    app::{
+        error::{Error, ErrorKind},
+        metrics::Metrics,
+        state::AppState,
+    },
     authz::AuthzCache,
 };
 use anyhow::{Context, Result};
@@ -109,31 +113,52 @@ pub async fn run(db: PgPool, authz_cache: Option<AuthzCache>) -> Result<()> {
 
     // Move hanging sessions to history
     if let Err(e) = history_manager::move_all_sessions(state.clone(), replica_id).await {
-        error!(error = %e, "Failed to move all sessions to history");
+        report_error(
+            ErrorKind::MovingSessionToHistoryFailed,
+            "Failed to move all sessions to history",
+            e,
+        );
     }
 
     // Make sure session manager, server, and others are stopped
-    if let Err(err) = session_manager.await {
-        error!(error = %err, "Failed to await session manager completion");
+    if let Err(e) = session_manager.await {
+        report_error(
+            ErrorKind::ShutdownFailed,
+            "Failed to await session manager completion",
+            e.into(),
+        );
     }
 
-    if let Err(err) = server.await {
-        error!(error = %err, "Failed to await server completion");
+    if let Err(e) = server.await {
+        report_error(
+            ErrorKind::ShutdownFailed,
+            "Failed to await server completion",
+            e.into(),
+        );
     }
 
-    if let Err(err) = internal_server.await {
-        error!(error = %err, "Failed to await internal server completion");
+    if let Err(e) = internal_server.await {
+        report_error(
+            ErrorKind::ShutdownFailed,
+            "Failed to await internal server completion",
+            e.into(),
+        );
     }
 
-    if let Err(err) = replica::terminate(&db, replica_id).await {
-        error!(error = %err, "Failed to terminate replica");
+    if let Err(e) = replica::terminate(&db, replica_id).await {
+        report_error(ErrorKind::ShutdownFailed, "Failed to terminate replica", e);
     }
 
-    if let Err(err) = nats_client.shutdown().await {
-        error!(error = %err, "Nats client shutdown failed");
+    if let Err(e) = nats_client.shutdown().await {
+        report_error(ErrorKind::ShutdownFailed, "Nats client shutdown failed", e);
     }
 
     metrics_server.shutdown().await;
 
     Ok(())
+}
+
+fn report_error(kind: ErrorKind, msg: &str, error: anyhow::Error) {
+    error!(error = %error, msg);
+    Error::new(kind, error).notify_sentry();
 }

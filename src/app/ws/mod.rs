@@ -2,7 +2,8 @@ use crate::classroom::ClassroomId;
 use http::StatusCode;
 use serde::{de::Error, Deserialize, Deserializer};
 use serde_derive::Serialize;
-use svc_error::Error as SvcError;
+use std::sync::Arc;
+use svc_error::{extension::sentry, Error as SvcError};
 
 pub use handler::handler;
 
@@ -125,12 +126,16 @@ impl From<RecoverableSessionError> for Response {
 
 impl From<anyhow::Error> for Response {
     fn from(e: anyhow::Error) -> Self {
-        let error = SvcError::builder()
+        let err = SvcError::builder()
             .status(StatusCode::INTERNAL_SERVER_ERROR)
             .kind("internal_server_error", "Internal server error")
             .detail(&e.to_string())
             .build();
 
-        Response::UnrecoverableSessionError(error)
+        if let Err(e) = sentry::send(Arc::new(e)) {
+            tracing::error!(error = %e, "Failed to send error to sentry");
+        }
+
+        Response::UnrecoverableSessionError(err)
     }
 }
