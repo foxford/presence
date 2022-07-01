@@ -1,9 +1,7 @@
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
-  name: {{ .Chart.Name }}-servicemonitor
-  labels:
-    {{- include "presence.labels" . | nindent 4 }}
+  name: {{ include "presence.fullname" . }}
 spec:
   endpoints:
   - bearerTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token
