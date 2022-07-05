@@ -10,7 +10,6 @@ data:
     id = {{ $id | quote }}
     listener_address = "0.0.0.0:{{ get .Values.service.ports "http" }}"
     metrics_listener_address = "0.0.0.0:{{ get .Values.service.ports "metrics" }}"
-    internal_listener_address = "0.0.0.0:{{ get .Values.service.ports "internal" }}"
     {{- $svc_audience := list (include "presence.shortNamespace" $) .Values.svc.audience | compact | join "." }}
     svc_audience = {{ $svc_audience | quote }}
 
@@ -18,7 +17,7 @@ data:
     ping_interval = {{ .Values.config.websocket.ping_interval | quote }}
     pong_expiration_interval = {{ .Values.config.websocket.pong_expiration_interval | quote }}
     authentication_timeout = {{ .Values.config.websocket.authentication_timeout | quote }}
-    wait_before_close_connection = {{ .Values.config.websocket.wait_before_close_connection | quote }}
+    check_old_connection_interval = {{ .Values.config.websocket.check_old_connection_interval | quote }}
 
     [sentry]
     dsn = {{ .Values.sentry.dsn | quote }}

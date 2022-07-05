@@ -9,13 +9,13 @@ container:
     repository: foxford/presence-migration
     tag: ""
 
-resources:
-  limits:
-    cpu: 0.5
-    memory: 500Mi
-  requests:
-    cpu: 0.1
-    memory: 50Mi
+  resources:
+    limits:
+      cpu: 0.5
+      memory: 500Mi
+    requests:
+      cpu: 0.1
+      memory: 50Mi
 
 svc:
   audience: svc.services
@@ -51,7 +51,7 @@ config:
     ping_interval: 30s
     pong_expiration_interval: 5s
     authentication_timeout: 5s
-    wait_before_close_connection: 10s
+    check_old_connection_interval: 5s
 
 env:
   RUST_LOG: warn,presence=info,svc_utils=info,svc_utils::metrics=warn
@@ -70,7 +70,6 @@ service:
   ports:
     http: 8080
     metrics: 8081
-    internal: 8082
 
 ingress:
   host: foo.bar.example
