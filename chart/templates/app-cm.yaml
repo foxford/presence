@@ -3,21 +3,21 @@ kind: ConfigMap
 metadata:
   labels:
     {{- include "presence.labels" . | nindent 4 }}
-  name: {{ include "presence.name" . }}-config
+  name: {{ include "presence.fullname" . }}-app
 data:
   App.toml: |
-    {{- $id := list (include "presence.name" . ) (include "presence.shortNamespace" .) .Values.svc.audience | compact | join "." }}
+    {{- $id := list (include "presence.name" . ) (include "presence.shortNamespace" .) .Values.app.svc.audience | compact | join "." }}
     id = {{ $id | quote }}
-    listener_address = "0.0.0.0:{{ get .Values.service.ports "http" }}"
-    metrics_listener_address = "0.0.0.0:{{ get .Values.service.ports "metrics" }}"
-    {{- $svc_audience := list (include "presence.shortNamespace" $) .Values.svc.audience | compact | join "." }}
+    listener_address = "0.0.0.0:8080"
+    metrics_listener_address = "0.0.0.0:8888"
+    {{- $svc_audience := list (include "presence.shortNamespace" $) .Values.app.svc.audience | compact | join "." }}
     svc_audience = {{ $svc_audience | quote }}
 
     [websocket]
-    ping_interval = {{ .Values.config.websocket.ping_interval | quote }}
-    pong_expiration_interval = {{ .Values.config.websocket.pong_expiration_interval | quote }}
-    authentication_timeout = {{ .Values.config.websocket.authentication_timeout | quote }}
-    check_old_connection_interval = {{ .Values.config.websocket.check_old_connection_interval | quote }}
+    ping_interval = {{ .Values.app.websocket.ping_interval | quote }}
+    pong_expiration_interval = {{ .Values.app.websocket.pong_expiration_interval | quote }}
+    authentication_timeout = {{ .Values.app.websocket.authentication_timeout | quote }}
+    check_old_connection_interval = {{ .Values.app.websocket.check_old_connection_interval | quote }}
 
     [sentry]
     dsn = {{ .Values.sentry.dsn | quote }}
@@ -25,7 +25,7 @@ data:
 
     {{- println "" }}
 
-    {{- with .Values.svc }}
+    {{- with .Values.app.svc }}
     ##
     ## SVC
     ##
@@ -66,7 +66,7 @@ data:
 
     {{- println "" }}
 
-    {{- range .Values.audiences }}
+    {{- range .Values.app.audiences }}
     ##
     ## {{ .audience }}
     ##
@@ -86,7 +86,7 @@ data:
     [authz.{{ $ns_audience | quote }}]
     type = {{ .type | quote }}
     {{- if eq "http" .type }}
-    {{- $default_authz_url := $ns_audience | list "http://dispatcher-service:8080/api/v1/authz/" | join "" }}
+    {{- $default_authz_url := $ns_audience | list "http://dispatcher-cluster:8080/api/v1/authz/" | join "" }}
     uri = {{ default $default_authz_url .uri | quote }}
     algorithm = {{ default "ES256" .algorithm | quote }}
     key = {{ default "data/keys/svc.private_key.p8.der" .key | quote }}

@@ -20,8 +20,8 @@ deploy:
       - name: presence
         chartPath: chart
         artifactOverrides:
-          container.image: foxford/presence
-          container.migrations: foxford/presence-migration
+          app.image: foxford/presence
+          migrations.image: foxford/presence-migration
         imageStrategy:
           helm: {}
         valuesFiles:
