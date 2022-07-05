@@ -8,7 +8,7 @@ classDiagram
         - classroom_id:uuid
         - started_at:timestampz
         - replica_id:uuid
-        uniq_classroom_id_agent_id(classroom_id, agent_id)
+        UNIQUE (classroom_id, agent_id)
     }
 
     class agent_session_history {
@@ -25,5 +25,5 @@ classDiagram
         - registered_at:timestampz
     }
 
-    agent_session <|-- replica
+    agent_session -->  replica : replica_id
 ```

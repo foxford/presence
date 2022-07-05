@@ -12,20 +12,15 @@ Otherwise, the connection will close through the timeout.
 
 Request parameters:
 
-```json
-{
-    "type": "connect_request",
-    "payload": {
-        "agent_label": "",
-        "classroom_id": "",
-        "token": ""
-    }
-}
-```
-
 Attribute | Type   | Description
 ----------|--------|------------
 type      | string | "connect_request".
+payload   | object | The payload of the request.
+
+Payload parameters:
+
+Attribute    | Type   | Description
+-------------|--------|------------
 agent_label  | string | Agent label.
 classroom_id | string | Classroom ID (uuid).
 token        | string | JWT token.
