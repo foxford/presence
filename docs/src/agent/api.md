@@ -3,28 +3,28 @@
 All routes expect json payloads.
 
 ### Routes
-Route                                   | Method | Short description
---------------------------------------- |--------| -----------------
-/api/v1/classrooms/:classroom_id/agents | GET    | [Get the number of online agents](#get-the-number-of-online-agents-in-the-classroom) in the classroom.
-/api/v1/counters/agent                  | POST   | [Counts](#count-online-agents) online agents in classrooms.
+| Route                                   | Method | Short description                                                                                      |
+|-----------------------------------------|--------|--------------------------------------------------------------------------------------------------------|
+| /api/v1/classrooms/:classroom_id/agents | GET    | [Get the number of online agents](#get-the-number-of-online-agents-in-the-classroom) in the classroom. |
+| /api/v1/counters/agent                  | POST   | [Counts](#count-online-agents) online agents in classrooms.                                            |
 
 ### Get the number of online agents
 
 Request parameters:
 
-Attribute    | Type | Optional | Description
--------------|------|----------| -----------
-classroom_id | uuid |          | Classroom ID.
-offset       | int  | +        | Pagination offset (Default: `0`).
-limit        | int  | +        | Pagination limit (Default: `100`).
+| Attribute    | Type | Optional | Description                        |
+|--------------|------|----------|------------------------------------|
+| classroom_id | uuid |          | Classroom ID.                      |
+| offset       | int  | +        | Pagination offset (Default: `0`).  |
+| limit        | int  | +        | Pagination limit (Default: `100`). |
 
 Response status: `200`
 
 Response Body:
 
-Type          | Description
---------------|------------
-array[string] | An array of Agent's ID.
+| Type          | Description             |
+|---------------|-------------------------|
+| array[string] | An array of Agent's ID. |
 
 Example:
 ```json
@@ -34,17 +34,17 @@ Example:
 
 Request parameters:
 
-Attribute     | Type   | Optional | Description
-------------- |--------|----------| -----------
-classroom_ids | [uuid] |          | Classroom ID's.
+| Attribute     | Type   | Optional | Description     |
+|---------------|--------|----------|-----------------|
+| classroom_ids | [uuid] |          | Classroom ID's. |
 
 Response status: `200`
 
 Response Body:
 
-Type          | Description
---------------|------------
-{string: int} | A JSON object with classroom ID's and the number of agents in them
+| Type          | Description                                                        |
+|---------------|--------------------------------------------------------------------|
+| {string: int} | A JSON object with classroom ID's and the number of agents in them |
 
 Example:
 

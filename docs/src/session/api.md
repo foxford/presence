@@ -1,9 +1,9 @@
 # API
 
 ### Routes
-Route | Method  | Short description
-------|---------| -----------------
-/ws   | GET     | Establishes a WebSocket connection.
+| Route | Method | Short description                   |
+|-------|--------|-------------------------------------|
+| /ws   | GET    | Establishes a WebSocket connection. |
 
 ### Connect request
 
@@ -12,18 +12,18 @@ Otherwise, the connection will close through the timeout.
 
 Request parameters:
 
-Attribute | Type   | Description
-----------|--------|------------
-type      | string | "connect_request".
-payload   | object | The payload of the request.
+| Attribute | Type   | Description                 |
+|-----------|--------|-----------------------------|
+| type      | string | "connect_request".          |
+| payload   | object | The payload of the request. |
 
 Payload parameters:
 
-Attribute    | Type   | Description
--------------|--------|------------
-agent_label  | string | Agent label.
-classroom_id | string | Classroom ID (uuid).
-token        | string | JWT token.
+| Attribute    | Type   | Description          |
+|--------------|--------|----------------------|
+| agent_label  | string | Agent label.         |
+| classroom_id | string | Classroom ID (uuid). |
+| token        | string | JWT token.           |
 
 #### Successful response
 

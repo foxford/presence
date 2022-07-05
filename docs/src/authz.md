@@ -24,8 +24,8 @@ URI of authorization endpoint, object and anonymous namespaces are configured th
 
 Possible values for `OBJECT` and `ACTION`:
 
-Object                       | Action  | Description
------------------------------|---------| -----------
-["classrooms"]               | read    | A service counts online agents.
-["classrooms", CLASSROOM_ID] | read    | An user reads information about the number of online agents in the classroom.
-["classrooms", CLASSROOM_ID] | connect | An user connects to the classroom.
+| Object                       | Action  | Description                                                                   |
+|------------------------------|---------|-------------------------------------------------------------------------------|
+| ["classrooms"]               | read    | A service counts online agents.                                               |
+| ["classrooms", CLASSROOM_ID] | read    | An user reads information about the number of online agents in the classroom. |
+| ["classrooms", CLASSROOM_ID] | connect | An user connects to the classroom.                                            |

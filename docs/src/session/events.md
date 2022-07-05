@@ -6,11 +6,11 @@ Arrives when someone enters the classroom
 
 Subject: `classrooms.{:CLASSROOM_ID}.presence`
 
-Attribute | Type   | Optional  | Description
-----------| ------ |-----------| -----------
-type      | string |           | "event"
-label     | string |           | "agent.enter"
-payload   | string | +         | Agent ID
+| Attribute | Type   | Description   |
+|-----------|--------|---------------|
+| type      | string | "event"       |
+| label     | string | "agent.enter" |
+| payload   | string | Agent ID      |
 
 ```mermaid
 sequenceDiagram
@@ -51,11 +51,11 @@ Arrives when someone leaves the classroom
 
 Subject: `classrooms.{:CLASSROOM_ID}.presence`
 
-Attribute | Type   | Optional  | Description
-----------| ------ |-----------| -----------
-type      | string |           | "event"
-label     | string |           | "agent.leave"
-payload   | string | +         | Agent ID
+| Attribute | Type   | Description   |
+|-----------|--------|---------------|
+| type      | string | "event"       |
+| label     | string | "agent.leave" |
+| payload   | string | Agent ID      |
 
 ```mermaid
 sequenceDiagram

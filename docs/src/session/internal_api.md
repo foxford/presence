@@ -1,9 +1,9 @@
 # Internal API
 
 ### Routes
-Route            | Method | Short description
------------------|--------| -----------------
-/api/v1/sessions | DELETE | [Deletes a session](#delete-session) on a replica.
+| Route            | Method | Short description                                  |
+|------------------|--------|----------------------------------------------------|
+| /api/v1/sessions | DELETE | [Deletes a session](#delete-session) on a replica. |
 
 ### Delete session
 
@@ -18,10 +18,10 @@ Request parameters:
 }
 ```
 
-Attribute     | Type   | Description
---------------|--------|------------
-agent_id      | string | Agent ID.
-classroom_id  | string | Classroom ID (uuid).
+| Attribute    | Type   | Description          |
+|--------------|--------|----------------------|
+| agent_id     | string | Agent ID.            |
+| classroom_id | string | Classroom ID (uuid). |
 
 #### Successful response
 

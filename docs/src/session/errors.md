@@ -6,12 +6,12 @@
 
 Occurs when the server is rebooted (graceful shutdown)
 
-Attribute       | Type   | Description
-----------------|--------|------------
-type            | string | "recoverable_session_error"
-payload[type]   | string | "terminated"
-payload[title]  | string | "terminated"
-payload[status] | int    | 422
+| Attribute       | Type   | Description                 |
+|-----------------|--------|-----------------------------|
+| type            | string | "recoverable_session_error" |
+| payload[type]   | string | "terminated"                |
+| payload[title]  | string | "terminated"                |
+| payload[status] | int    | 422                         |
 
 ```mermaid
 sequenceDiagram
@@ -43,12 +43,12 @@ sequenceDiagram
 
 Occurs when the agent opens the second session
 
-Attribute       | Type   | Description
-----------------|--------|------------
-type            | string | "unrecoverable_session_error"
-payload[type]   | string | "replaced"
-payload[title]  | string | "replaced"
-payload[status] | int    | 422
+| Attribute       | Type   | Description                   |
+|-----------------|--------|-------------------------------|
+| type            | string | "unrecoverable_session_error" |
+| payload[type]   | string | "replaced"                    |
+| payload[title]  | string | "replaced"                    |
+| payload[status] | int    | 422                           |
 
 #### On the same replica
 
@@ -110,12 +110,12 @@ sequenceDiagram
 
 Occurs when the server didn't receive the [connect_request](/session/api.html#connect-request) from the client at a given period of time
 
-Attribute       | Type   | Description
-----------------|--------|------------
-type            | string | "unrecoverable_session_error"
-payload[type]   | string | "auth_timed_out"
-payload[title]  | string | "auth_timed_out"
-payload[status] | int    | 422
+| Attribute       | Type   | Description                   |
+|-----------------|--------|-------------------------------|
+| type            | string | "unrecoverable_session_error" |
+| payload[type]   | string | "auth_timed_out"              |
+| payload[title]  | string | "auth_timed_out"              |
+| payload[status] | int    | 422                           |
 
 ```mermaid
 sequenceDiagram
@@ -136,12 +136,12 @@ sequenceDiagram
 
 Occurs when the server didn't receive a valid token from the client
 
-Attribute       | Type   | Description
-----------------|--------|------------
-type            | string | "unrecoverable_session_error"
-payload[type]   | string | "unauthenticated"
-payload[title]  | string | "unauthenticated"
-payload[status] | int    | 401
+| Attribute       | Type   | Description                   |
+|-----------------|--------|-------------------------------|
+| type            | string | "unrecoverable_session_error" |
+| payload[type]   | string | "unauthenticated"             |
+| payload[title]  | string | "unauthenticated"             |
+| payload[status] | int    | 401                           |
 
 ```mermaid
 sequenceDiagram
@@ -162,12 +162,12 @@ sequenceDiagram
 
 Occurs when the server didn't receive the `PONG` message from the client at a given period of time
 
-Attribute       | Type   | Description
-----------------|--------|------------
-type            | string | "unrecoverable_session_error"
-payload[type]   | string | "pong_timed_out"
-payload[title]  | string | "pong_timed_out"
-payload[status] | int    | 422
+| Attribute       | Type   | Description                   |
+|-----------------|--------|-------------------------------|
+| type            | string | "unrecoverable_session_error" |
+| payload[type]   | string | "pong_timed_out"              |
+| payload[title]  | string | "pong_timed_out"              |
+| payload[status] | int    | 422                           |
 
 ```mermaid
 sequenceDiagram
