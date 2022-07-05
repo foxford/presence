@@ -7,8 +7,7 @@ pub struct Event {
     #[serde(rename = "type")]
     kind: String,
     label: Label,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    payload: Option<Payload>,
+    payload: Payload,
 }
 
 #[derive(Serialize)]
@@ -36,16 +35,11 @@ pub struct Payload {
 }
 
 impl Event {
-    pub fn new(label: Label) -> Self {
+    pub fn new(label: Label, agent_id: AgentId) -> Self {
         Self {
             kind: "event".to_string(),
             label,
-            payload: None,
+            payload: Payload { agent_id },
         }
-    }
-
-    pub fn payload(mut self, agent_id: AgentId) -> Self {
-        self.payload = Some(Payload { agent_id });
-        self
     }
 }

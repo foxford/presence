@@ -91,7 +91,7 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
                     };
 
                     // Send agent.enter others
-                    let event = Event::new(Label::AgentEnter).payload(session_key.clone().agent_id);
+                    let event = Event::new(Label::AgentEnter, session_key.clone().agent_id);
                     if let Err(e) = state
                         .nats_client()
                         .publish_event(session_key.clone(), event)
@@ -265,7 +265,7 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
         return;
     }
 
-    let event = Event::new(Label::AgentLeave).payload(session_key.agent_id.clone());
+    let event = Event::new(Label::AgentLeave, session_key.agent_id.clone());
     if let Err(e) = state
         .nats_client()
         .publish_event(session_key.clone(), event)
