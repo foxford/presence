@@ -81,29 +81,33 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
     actor Agent1
-    participant Presence
+    participant Presence1
     participant DB
+    participant Presence2
     actor Agent2
 
-    Agent1 ->> Presence: connect
+    Agent1 ->> Presence1: connect
     activate Agent1
-    activate Presence
-    Presence ->> DB: create session in table agent_session for Agent1
-    DB ->> Presence: Session ID
-    Presence ->> Agent1: success
-    Agent2 ->> Presence: connect
+    activate Presence1
+    Presence1 ->> DB: create session in table agent_session for Agent1
+    DB ->> Presence1: Session ID
+    Presence1 ->> Agent1: success
+    Agent2 ->> Presence2: connect
     activate Agent2
-    Presence ->> Agent1: replaced
-    Presence ->> Presence: close connection for Agent1
+    activate Presence2
+    Presence2 ->> Presence1: close connection for Agent1
+    Presence1 ->> Agent1: replaced
     deactivate Agent1
-    Presence ->> DB: move Agent1 session to history
+    Presence1 ->> DB: move Agent1 session to history
     DB ->> DB: create session in table agent_session_history
     DB ->> DB: delete session from table agent_session
-    Presence ->> DB: create session in table agent_session for Agent2
-    DB ->> Presence: Session ID
-    Presence ->> Agent2: success
+    Presence1 ->> Presence2: success
+    deactivate Presence1
+    Presence2 ->> DB: create session in table agent_session for Agent2
+    DB ->> Presence2: Session ID
+    Presence2 ->> Agent2: success
     deactivate Agent2
-    deactivate Presence
+    deactivate Presence2
 ```
 
 ### `auth_timed_out`

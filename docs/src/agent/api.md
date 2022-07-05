@@ -49,7 +49,7 @@ Response Body:
 Example:
 
 ```json
-{"0d8fc826-85a0-433f-97fa-df748267787f": 10}
+{ "0d8fc826-85a0-433f-97fa-df748267787f": 10 }
 ```
 
 
