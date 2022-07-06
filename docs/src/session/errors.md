@@ -50,7 +50,7 @@ Occurs when the agent opens the second session
 | payload[title]  | string | "replaced"                    |
 | payload[status] | int    | 422                           |
 
-#### On the same replica
+##### On the same replica
 
 ```mermaid
 sequenceDiagram
@@ -76,7 +76,7 @@ sequenceDiagram
     deactivate Presence
 ```
 
-#### On another replica
+##### On another replica
 
 ```mermaid
 sequenceDiagram
