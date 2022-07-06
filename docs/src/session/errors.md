@@ -112,7 +112,7 @@ sequenceDiagram
 
 ### `auth_timed_out`
 
-Occurs when the server didn't receive the [connect_request](/session/api.html#connect-request) from the client at a given period of time
+Occurs when the server didn't receive the [connect_request](./api.html#connect-request) from the client at a given period of time
 
 | Attribute       | Type   | Description                   |
 |-----------------|--------|-------------------------------|
