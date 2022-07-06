@@ -39,7 +39,7 @@ Payload parameters:
 { "type": "unrecoverable_session_error", "payload": { "type": "unsupported_request", "title": "Unsupported request", "status": 405 }}
 ```
 
-* [Unauthenticated](/session/errors.html#unauthenticated)
+* [Unauthenticated](./errors.html#unauthenticated)
 
 ```json
 { "type": "unrecoverable_session_error", "payload": { "type": "unauthenticated", "title": "Unauthenticated", "status": 401 }}
@@ -63,19 +63,19 @@ Payload parameters:
 { "type": "unrecoverable_session_error", "payload": { "type": "serialization_failed", "title": "Serialization failed", "status": 422 }}
 ```
 
-* [AuthTimedOut](/session/errors.html#auth_timed_out)
+* [AuthTimedOut](./errors.html#auth_timed_out)
 
 ```json
 { "type": "unrecoverable_session_error", "payload": { "type": "auth_timed_out", "title": "Auth timed out", "status": 422 }}
 ```
 
-* [PongTimedOut](/session/errors.html#pong_timed_out)
+* [PongTimedOut](./errors.html#pong_timed_out)
 
 ```json
 { "type": "unrecoverable_session_error", "payload": { "type": "pong_timed_out", "title": "Pong timed out", "status": 422 }}
 ```
 
-* [Replaced](/session/errors.html#replaced)
+* [Replaced](./errors.html#replaced)
 
 ```json
 { "type": "unrecoverable_session_error", "payload": { "type": "replaced", "title": "Replaced", "status": 422 }}
