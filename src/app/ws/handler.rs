@@ -99,7 +99,7 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
                         error!(error = %e, "Failed to send agent.enter notification");
                         close_conn_with_msg(
                             sender,
-                            Response::from(UnrecoverableSessionError::MessagingFailed),
+                            Response::from(UnrecoverableSessionError::InternalServerError),
                         )
                         .await;
                         return;
@@ -346,7 +346,7 @@ async fn create_agent_session<S: State>(
     let mut conn = state.get_conn().await.map_err(|e| {
         error!(error = %e, "Failed to get db connection");
         send_to_sentry(e);
-        UnrecoverableSessionError::DbConnAcquisitionFailed
+        UnrecoverableSessionError::InternalServerError
     })?;
 
     // Attempt to close old session on the same replica
@@ -359,7 +359,7 @@ async fn create_agent_session<S: State>(
         Err(e) => {
             error!(error = %e, "Failed to terminate session: {}", &session_key);
             send_to_sentry(e);
-            return Err(UnrecoverableSessionError::MessagingFailed);
+            return Err(UnrecoverableSessionError::InternalServerError);
         }
         _ => {}
     }
@@ -376,7 +376,7 @@ async fn create_agent_session<S: State>(
         InsertResult::Error(e) => {
             error!(error = %e, "Failed to create an agent session");
             send_to_sentry(e.into());
-            Err(UnrecoverableSessionError::DbQueryFailed)
+            Err(UnrecoverableSessionError::InternalServerError)
         }
         InsertResult::UniqIdsConstraintError => {
             use app::api::v1::session::Response as DeleteResponse;
@@ -387,7 +387,7 @@ async fn create_agent_session<S: State>(
                 .map_err(|e| {
                     error!(error = %e, "Failed to get replica ip");
                     send_to_sentry(e.into());
-                    UnrecoverableSessionError::DbQueryFailed
+                    UnrecoverableSessionError::InternalServerError
                 })?;
 
             match replica::close_connection(state.clone(), replica_ip.ip(), session_key).await {
@@ -405,21 +405,21 @@ async fn create_agent_session<S: State>(
                         InsertResult::Error(e) => {
                             error!(error = %e, "Failed to create new agent session");
                             send_to_sentry(e.into());
-                            Err(UnrecoverableSessionError::DbQueryFailed)
+                            Err(UnrecoverableSessionError::InternalServerError)
                         }
                         InsertResult::UniqIdsConstraintError => {
                             error!("Failed to create new agent session due to unique constraint");
                             send_to_sentry(anyhow!(
                                 "Failed to create new agent session due to unique constraint"
                             ));
-                            Err(UnrecoverableSessionError::DbQueryFailed)
+                            Err(UnrecoverableSessionError::InternalServerError)
                         }
                     }
                 }
                 Err(e) => {
                     error!(error = %e, "Failed to close connection on another replica");
                     send_to_sentry(e);
-                    Err(UnrecoverableSessionError::CloseOldConnectionFailed)
+                    Err(UnrecoverableSessionError::InternalServerError)
                 }
                 Ok(DeleteResponse::DeleteFailure(r)) => {
                     error!(reason = %r, "Failed to delete connection on another replica");
@@ -427,7 +427,7 @@ async fn create_agent_session<S: State>(
                         "Failed to delete connection on another replica, reason = {}",
                         r
                     ));
-                    Err(UnrecoverableSessionError::CloseOldConnectionFailed)
+                    Err(UnrecoverableSessionError::InternalServerError)
                 }
             }
         }

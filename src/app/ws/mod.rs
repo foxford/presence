@@ -46,14 +46,11 @@ pub enum Response {
 
 #[derive(PartialEq, Debug)]
 enum UnrecoverableSessionError {
+    AccessDenied,
     UnsupportedRequest,
     Unauthenticated,
-    AccessDenied,
-    DbConnAcquisitionFailed,
-    DbQueryFailed,
+    InternalServerError,
     SerializationFailed,
-    MessagingFailed,
-    CloseOldConnectionFailed,
     AuthTimedOut,
     PongTimedOut,
     Replaced,
@@ -70,31 +67,19 @@ impl From<UnrecoverableSessionError> for Response {
         builder = match e {
             UnrecoverableSessionError::UnsupportedRequest => builder
                 .status(StatusCode::UNPROCESSABLE_ENTITY)
-                .kind("unsupported_request", "Unsupported Request"),
+                .kind("unsupported_request", "Unsupported request"),
             UnrecoverableSessionError::Unauthenticated => builder
                 .status(StatusCode::UNAUTHORIZED)
                 .kind("unauthenticated", "Unauthenticated"),
             UnrecoverableSessionError::AccessDenied => builder
                 .status(StatusCode::FORBIDDEN)
-                .kind("access_denied", "Access Denied"),
-            UnrecoverableSessionError::DbConnAcquisitionFailed => {
-                builder.status(StatusCode::UNPROCESSABLE_ENTITY).kind(
-                    "database_connection_acquisition_failed",
-                    "Database connection acquisition failed",
-                )
-            }
-            UnrecoverableSessionError::DbQueryFailed => builder
-                .status(StatusCode::UNPROCESSABLE_ENTITY)
-                .kind("database_query_failed", "Database query failed"),
+                .kind("access_denied", "Access denied"),
+            UnrecoverableSessionError::InternalServerError => builder
+                .status(StatusCode::INTERNAL_SERVER_ERROR)
+                .kind("internal_server_error", "Internal server error"),
             UnrecoverableSessionError::SerializationFailed => builder
                 .status(StatusCode::UNPROCESSABLE_ENTITY)
                 .kind("serialization_failed", "Serialization failed"),
-            UnrecoverableSessionError::MessagingFailed => builder
-                .status(StatusCode::UNPROCESSABLE_ENTITY)
-                .kind("messaging_failed", "Messaging failed"),
-            UnrecoverableSessionError::CloseOldConnectionFailed => builder
-                .status(StatusCode::UNPROCESSABLE_ENTITY)
-                .kind("close_old_connection_failed", "Close old connection failed"),
             UnrecoverableSessionError::AuthTimedOut => builder
                 .status(StatusCode::UNPROCESSABLE_ENTITY)
                 .kind("auth_timed_out", "Auth timed out"),
