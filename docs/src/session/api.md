@@ -36,7 +36,7 @@ Payload parameters:
 * Unsupported request
 
 ```json
-{ "type": "unrecoverable_session_error", "payload": { "type": "unsupported_request", "title": "Unsupported request", "status": 422 }}
+{ "type": "unrecoverable_session_error", "payload": { "type": "unsupported_request", "title": "Unsupported request", "status": 405 }}
 ```
 
 * [Unauthenticated](/session/errors.html#unauthenticated)
@@ -51,34 +51,16 @@ Payload parameters:
 { "type": "unrecoverable_session_error", "payload": { "type": "access_denied", "title": "Access denied", "status": 403 }}
 ```
 
-* Database connection acquisition failed
+* Internal server error
 
 ```json
-{ "type": "unrecoverable_session_error", "payload": { "type": "database_connection_acquisition_failed", "title": "Database connection acquisition failed", "status": 422 }}
-```
-
-* Database query failed
-
-```json
-{ "type": "unrecoverable_session_error", "payload": { "type": "database_query_failed", "title": "Database query failed", "status": 422 }}
+{ "type": "unrecoverable_session_error", "payload": { "type": "internal_server_error", "title": "Internal server error", "status": 500 }}
 ```
 
 * Serialization failed
 
 ```json
 { "type": "unrecoverable_session_error", "payload": { "type": "serialization_failed", "title": "Serialization failed", "status": 422 }}
-```
-
-* Messaging failed
-
-```json
-{ "type": "unrecoverable_session_error", "payload": { "type": "messaging_failed", "title": "Messaging failed", "status": 422 }}
-```
-
-* Close old connection failed ([on another replica](/session/errors.html#on-another-replica))
-
-```json
-{ "type": "unrecoverable_session_error", "payload": { "type": "close_old_connection_failed", "title": "Close old connection failed", "status": 422 }}
 ```
 
 * [AuthTimedOut](/session/errors.html#auth_timed_out)
