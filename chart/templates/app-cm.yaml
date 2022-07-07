@@ -9,6 +9,7 @@ data:
     {{- $id := list (include "presence.name" . ) (include "presence.shortNamespace" .) .Values.app.svc.audience | compact | join "." }}
     id = {{ $id | quote }}
     listener_address = "0.0.0.0:8080"
+    internal_listener_address = "0.0.0.0:8081"
     metrics_listener_address = "0.0.0.0:8888"
     {{- $svc_audience := list (include "presence.shortNamespace" $) .Values.app.svc.audience | compact | join "." }}
     svc_audience = {{ $svc_audience | quote }}
@@ -17,7 +18,7 @@ data:
     ping_interval = {{ .Values.app.websocket.ping_interval | quote }}
     pong_expiration_interval = {{ .Values.app.websocket.pong_expiration_interval | quote }}
     authentication_timeout = {{ .Values.app.websocket.authentication_timeout | quote }}
-    check_old_connection_interval = {{ .Values.app.websocket.check_old_connection_interval | quote }}
+    wait_before_close_connection = {{ .Values.app.websocket.wait_before_close_connection | quote }}
 
     [sentry]
     dsn = {{ .Values.sentry.dsn | quote }}
@@ -45,7 +46,7 @@ data:
     {{- if eq "local" .type }}
     trusted = [
       {{- range $account_label := .trusted }}
-        {{ list $account_label | join "." | quote }},
+        {{ (list $account_label (include "presence.shortNamespace" $) $.Values.app.svc.audience) | compact | join "." | quote }},
       {{- end }}
     ]
     {{- end }}
@@ -96,7 +97,7 @@ data:
     {{- if eq "local" .type }}
     trusted = [
       {{- range $account_label := .trusted }}
-        {{ $ns_audience | list $account_label | join "." | quote }},
+        {{ (list $account_label (include "presence.shortNamespace" $) $.Values.app.svc.audience) | compact | join "." | quote }},
       {{- end }}
     ]
     {{- end }}

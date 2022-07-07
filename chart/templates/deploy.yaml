@@ -1,12 +1,11 @@
 apiVersion: apps/v1
-kind: StatefulSet
+kind: Deployment
 metadata:
   name: {{ include "presence.fullname" . }}
   labels:
     {{- include "presence.labels" . | nindent 4 }}
 spec:
   replicas: {{ .Values.replicaCount | default 2 }}
-  serviceName: {{ include "presence.fullname" . }}-headless
   selector:
     matchLabels:
       {{- include "presence.selectorLabels" . | nindent 6 }}
@@ -20,13 +19,12 @@ spec:
       labels:
         {{- include "presence.selectorLabels" . | nindent 8 }}
     spec:
+      serviceAccountName: {{ include "presence.name" . }}
       imagePullSecrets:
         - name: regcred
       initContainers:
         - name: init-{{ .Chart.Name }}-migration
-          {{- with .Values.container }}
           image: "{{ .Values.migrations.image.repository }}:{{ .Values.migrations.image.tag | default .Values.app.image.tag | default $.Chart.AppVersion }}"
-          {{- end }}
           imagePullPolicy: IfNotPresent
           env:
             - name: DATABASE_URL

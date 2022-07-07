@@ -39,7 +39,6 @@ pub enum DeleteSession {
 /// Manages agent sessions by handling incoming commands.
 /// Also, closes old agent sessions.
 pub fn run(
-    // sessions: SessionMap,
     mut cmd_rx: mpsc::UnboundedReceiver<SessionCommand>,
     mut shutdown_rx: watch::Receiver<()>,
 ) -> JoinHandle<()> {
