@@ -43,7 +43,7 @@ app:
     ping_interval: 30s
     pong_expiration_interval: 5s
     authentication_timeout: 5s
-    check_old_connection_interval: 5s
+    wait_before_close_connection: 10s
 
 migrations:
   image:
@@ -65,8 +65,8 @@ env:
   CACHE_POOL_IDLE_SIZE: 5
   CACHE_POOL_TIMEOUT: 5
   CACHE_EXPIRATION_TIME: 300
-  DATABASE_POOL_SIZE: 15
-  DATABASE_POOL_IDLE_SIZE: 15
+  DATABASE_POOL_SIZE: 10
+  DATABASE_POOL_IDLE_SIZE: 10
   DATABASE_POOL_TIMEOUT: 5
   DATABASE_POOL_MAX_LIFETIME: 43200
 

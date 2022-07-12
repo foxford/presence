@@ -2,7 +2,7 @@ use crate::{
     app::{
         metrics::Metrics,
         nats::NatsClient,
-        session_manager::{Command, Session},
+        session_manager::{ConnectionCommand, DeleteSession, SessionCommand, TerminateSession},
     },
     config::Config,
     session::{SessionId, SessionKey},
@@ -13,21 +13,23 @@ use sqlx::{pool::PoolConnection, PgPool, Postgres};
 use std::sync::Arc;
 use svc_authz::ClientMap as Authz;
 use tokio::sync::{mpsc::UnboundedSender, oneshot};
+use uuid::Uuid;
 
 #[async_trait]
 pub trait State: Send + Sync + Clone + 'static {
     fn config(&self) -> &Config;
     fn authz(&self) -> &Authz;
-    fn replica_id(&self) -> String;
+    fn replica_id(&self) -> Uuid;
     fn metrics(&self) -> Metrics;
     fn register_session(
         &self,
         session_key: SessionKey,
         session_id: SessionId,
-    ) -> Result<oneshot::Receiver<()>>;
-    async fn terminate_session(&self, session_key: SessionKey, return_id: bool) -> Result<Session>;
+    ) -> Result<oneshot::Receiver<ConnectionCommand>>;
+    async fn terminate_session(&self, session_key: SessionKey) -> Result<TerminateSession>;
+    async fn delete_session(&self, session_key: SessionKey) -> Result<DeleteSession>;
     async fn get_conn(&self) -> Result<PoolConnection<Postgres>>;
-    fn nats_client(&self) -> &NatsClient;
+    fn nats_client(&self) -> &dyn NatsClient;
 }
 
 #[derive(Clone)]
@@ -39,20 +41,20 @@ struct InnerState {
     config: Config,
     db_pool: PgPool,
     authz: Authz,
-    replica_id: String,
-    cmd_sender: UnboundedSender<Command>,
-    nats_client: NatsClient,
+    replica_id: Uuid,
+    cmd_sender: UnboundedSender<SessionCommand>,
+    nats_client: Box<dyn NatsClient>,
     metrics: Metrics,
 }
 
 impl AppState {
-    pub fn new(
+    pub fn new<N: NatsClient + 'static>(
         config: Config,
         db_pool: PgPool,
         authz: Authz,
-        replica_id: String,
-        cmd_sender: UnboundedSender<Command>,
-        nats_client: NatsClient,
+        replica_id: Uuid,
+        cmd_sender: UnboundedSender<SessionCommand>,
+        nats_client: N,
         metrics: Metrics,
     ) -> Self {
         Self {
@@ -62,7 +64,7 @@ impl AppState {
                 authz,
                 replica_id,
                 cmd_sender,
-                nats_client,
+                nats_client: Box::new(nats_client),
                 metrics,
             }),
         }
@@ -79,8 +81,8 @@ impl State for AppState {
         &self.inner.authz
     }
 
-    fn replica_id(&self) -> String {
-        self.inner.replica_id.clone()
+    fn replica_id(&self) -> Uuid {
+        self.inner.replica_id
     }
 
     fn metrics(&self) -> Metrics {
@@ -91,30 +93,31 @@ impl State for AppState {
         &self,
         session_key: SessionKey,
         session_id: SessionId,
-    ) -> Result<oneshot::Receiver<()>> {
-        let (tx, rx) = oneshot::channel::<()>();
+    ) -> Result<oneshot::Receiver<ConnectionCommand>> {
+        let (tx, rx) = oneshot::channel::<ConnectionCommand>();
         self.inner
             .cmd_sender
-            .send(Command::Register(session_key, (session_id, tx)))?;
+            .send(SessionCommand::Register(session_key, (session_id, tx)))?;
 
         Ok(rx)
     }
 
-    async fn terminate_session(&self, session_key: SessionKey, return_id: bool) -> Result<Session> {
-        if return_id {
-            let (tx, rx) = oneshot::channel::<Session>();
-            self.inner
-                .cmd_sender
-                .send(Command::Terminate(session_key, Some(tx)))?;
-
-            return rx.await.context("failed to receive previous session id");
-        }
-
+    async fn terminate_session(&self, session_key: SessionKey) -> Result<TerminateSession> {
+        let (tx, rx) = oneshot::channel::<TerminateSession>();
         self.inner
             .cmd_sender
-            .send(Command::Terminate(session_key, None))?;
+            .send(SessionCommand::Terminate(session_key, tx))?;
 
-        Ok(Session::Skip)
+        rx.await.context("Failed to receive previous session id")
+    }
+
+    async fn delete_session(&self, session_key: SessionKey) -> Result<DeleteSession> {
+        let (tx, rx) = oneshot::channel::<DeleteSession>();
+        self.inner
+            .cmd_sender
+            .send(SessionCommand::Delete(session_key, tx))?;
+
+        rx.await.context("Failed to receive a response of deletion")
     }
 
     async fn get_conn(&self) -> Result<PoolConnection<Postgres>> {
@@ -125,7 +128,7 @@ impl State for AppState {
             .context("Failed to acquire DB connection")
     }
 
-    fn nats_client(&self) -> &NatsClient {
-        &self.inner.nats_client
+    fn nats_client(&self) -> &dyn NatsClient {
+        self.inner.nats_client.as_ref()
     }
 }

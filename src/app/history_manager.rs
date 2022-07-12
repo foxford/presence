@@ -5,9 +5,10 @@ use crate::{
 };
 use anyhow::{anyhow, Result};
 use sqlx::Connection;
+use uuid::Uuid;
 
 /// Moves all session from the `agent_session` table in `agent_session_history`.
-pub async fn move_all_sessions<S: State>(state: S, replica_id: &str) -> Result<()> {
+pub async fn move_all_sessions<S: State>(state: S, replica_id: Uuid) -> Result<()> {
     let mut conn = state
         .get_conn()
         .await
@@ -88,7 +89,7 @@ pub async fn move_single_session<S: State>(state: S, session_id: SessionId) -> R
         }
     }
 
-    agent_session::DeleteQuery::by_replica(&state.replica_id(), &[session.id])
+    agent_session::DeleteQuery::by_replica(state.replica_id(), &[session.id])
         .execute(&mut tx)
         .await
         .map_err(|e| anyhow!("Failed to delete agent_session: {:?}", e))?;
@@ -103,11 +104,10 @@ pub async fn move_single_session<S: State>(state: S, session_id: SessionId) -> R
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{classroom::ClassroomId, test_helpers::prelude::*};
+    use crate::{classroom::ClassroomId, db::replica, test_helpers::prelude::*};
     use sqlx::types::time::OffsetDateTime;
+    use std::net::{IpAddr, Ipv4Addr};
     use uuid::Uuid;
-
-    const REPLICA_ID: &str = "presence_1";
 
     mod move_all_sessions {
         use super::*;
@@ -124,24 +124,23 @@ mod tests {
             let agent_1 = TestAgent::new("http", "user1", USR_AUDIENCE);
             let agent_2 = TestAgent::new("http", "user2", USR_AUDIENCE);
 
-            {
+            let replica_id = {
                 let mut conn = db_pool.get_conn().await;
 
-                agent_session::InsertQuery::new(
-                    agent_1.agent_id(),
-                    classroom_id_1,
-                    REPLICA_ID.to_string(),
-                    OffsetDateTime::now_utc(),
+                let replica_id = replica::InsertQuery::new(
+                    "presence-1".into(),
+                    IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
                 )
-                .outdated(true)
+                .expect("Failed to create insert query for replica")
                 .execute(&mut conn)
                 .await
-                .expect("Failed to insert first agent session");
+                .expect("Failed to insert a replica")
+                .id;
 
                 agent_session::InsertQuery::new(
                     agent_1.agent_id(),
                     classroom_id_1,
-                    REPLICA_ID.to_string(),
+                    replica_id,
                     OffsetDateTime::now_utc(),
                 )
                 .execute(&mut conn)
@@ -151,16 +150,18 @@ mod tests {
                 agent_session::InsertQuery::new(
                     agent_2.agent_id(),
                     classroom_id_2,
-                    REPLICA_ID.to_string(),
+                    replica_id,
                     OffsetDateTime::now_utc(),
                 )
                 .execute(&mut conn)
                 .await
-                .expect("Failed to insert first agent session");
+                .expect("Failed to insert second agent session");
+
+                replica_id
             };
 
-            let state = TestState::new(db_pool.clone(), TestAuthz::new(), REPLICA_ID);
-            move_all_sessions(state, REPLICA_ID)
+            let state = TestState::new(db_pool.clone(), TestAuthz::new(), replica_id);
+            move_all_sessions(state, replica_id)
                 .await
                 .expect("Failed to move all sessions to history");
 
@@ -175,7 +176,7 @@ mod tests {
                     .expect("Failed to count agent session history");
 
             assert_eq!(agents_count, 0);
-            assert_eq!(history_count, 3);
+            assert_eq!(history_count, 2);
         }
 
         #[tokio::test]
@@ -188,8 +189,19 @@ mod tests {
             let agent_1 = TestAgent::new("http", "user1", USR_AUDIENCE);
             let agent_2 = TestAgent::new("http", "user2", USR_AUDIENCE);
 
-            {
+            let replica_id = {
                 let mut conn = db_pool.get_conn().await;
+
+                let replica_id = replica::InsertQuery::new(
+                    "presence-1".into(),
+                    IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
+                )
+                .expect("Failed to create insert query for replica")
+                .execute(&mut conn)
+                .await
+                .expect("Failed to insert a replica")
+                .id;
+
                 let past = OffsetDateTime::now_utc() - Duration::from_secs(120 * 60);
                 let session_id: SessionId = Uuid::new_v4().into();
 
@@ -197,7 +209,7 @@ mod tests {
                     id: session_id,
                     agent_id: agent_1.agent_id().to_owned(),
                     classroom_id: classroom_id_1,
-                    replica_id: REPLICA_ID.to_string(),
+                    replica_id,
                     started_at: past,
                 };
 
@@ -209,7 +221,7 @@ mod tests {
                 agent_session::InsertQuery::new(
                     agent_1.agent_id(),
                     classroom_id_1,
-                    REPLICA_ID.to_string(),
+                    replica_id,
                     past.add(Duration::from_secs(60 * 60)),
                 )
                 .execute(&mut conn)
@@ -217,29 +229,20 @@ mod tests {
                 .expect("Failed to insert first agent session");
 
                 agent_session::InsertQuery::new(
-                    agent_1.agent_id(),
-                    classroom_id_1,
-                    REPLICA_ID.to_string(),
+                    agent_2.agent_id(),
+                    classroom_id_2,
+                    replica_id,
                     OffsetDateTime::now_utc(),
                 )
-                .outdated(true)
                 .execute(&mut conn)
                 .await
                 .expect("Failed to insert second agent session");
 
-                agent_session::InsertQuery::new(
-                    agent_2.agent_id(),
-                    classroom_id_2,
-                    REPLICA_ID.to_string(),
-                    OffsetDateTime::now_utc(),
-                )
-                .execute(&mut conn)
-                .await
-                .expect("Failed to insert third agent session");
+                replica_id
             };
 
-            let state = TestState::new(db_pool.clone(), TestAuthz::new(), REPLICA_ID);
-            move_all_sessions(state, REPLICA_ID)
+            let state = TestState::new(db_pool.clone(), TestAuthz::new(), replica_id);
+            move_all_sessions(state, replica_id)
                 .await
                 .expect("Failed to move all sessions to history");
 
@@ -254,7 +257,7 @@ mod tests {
                     .expect("Failed to count agent session history");
 
             assert_eq!(agents_count, 0);
-            assert_eq!(history_count, 3);
+            assert_eq!(history_count, 2);
         }
     }
 
@@ -269,21 +272,33 @@ mod tests {
             let classroom_id: ClassroomId = Uuid::new_v4().into();
             let agent = TestAgent::new("http", "user123", USR_AUDIENCE);
 
-            let session = {
+            let (session, replica_id) = {
                 let mut conn = db_pool.get_conn().await;
 
-                agent_session::InsertQuery::new(
+                let replica_id = replica::InsertQuery::new(
+                    "presence-1".into(),
+                    IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
+                )
+                .expect("Failed to create insert query for replica")
+                .execute(&mut conn)
+                .await
+                .expect("Failed to insert a replica")
+                .id;
+
+                let session = agent_session::InsertQuery::new(
                     agent.agent_id(),
                     classroom_id,
-                    REPLICA_ID.to_string(),
+                    replica_id,
                     OffsetDateTime::now_utc(),
                 )
                 .execute(&mut conn)
                 .await
-                .expect("Failed to insert an agent session")
+                .expect("Failed to insert an agent session");
+
+                (session, replica_id)
             };
 
-            let state = TestState::new(db_pool.clone(), TestAuthz::new(), REPLICA_ID);
+            let state = TestState::new(db_pool.clone(), TestAuthz::new(), replica_id);
             move_single_session(state, session.id)
                 .await
                 .expect("Failed to move session to history");
@@ -310,13 +325,23 @@ mod tests {
             let classroom_id: ClassroomId = Uuid::new_v4().into();
             let agent = TestAgent::new("http", "user123", USR_AUDIENCE);
 
-            let session = {
+            let (session, replica_id) = {
                 let mut conn = db_pool.get_conn().await;
+
+                let replica_id = replica::InsertQuery::new(
+                    "presence-1".into(),
+                    IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
+                )
+                .expect("Failed to create insert query for replica")
+                .execute(&mut conn)
+                .await
+                .expect("Failed to insert a replica")
+                .id;
 
                 let session = agent_session::InsertQuery::new(
                     agent.agent_id(),
                     classroom_id,
-                    REPLICA_ID.to_string(),
+                    replica_id,
                     OffsetDateTime::now_utc(),
                 )
                 .execute(&mut conn)
@@ -328,10 +353,10 @@ mod tests {
                     .await
                     .expect("Failed to insert an agent session history");
 
-                session
+                (session, replica_id)
             };
 
-            let state = TestState::new(db_pool.clone(), TestAuthz::new(), REPLICA_ID);
+            let state = TestState::new(db_pool.clone(), TestAuthz::new(), replica_id);
             move_single_session(state, session.id)
                 .await
                 .expect("Failed to move session to history");

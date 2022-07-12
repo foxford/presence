@@ -1,76 +1,126 @@
 use crate::classroom::ClassroomId;
 use http::StatusCode;
-use serde_derive::{Deserialize, Serialize};
-use svc_error::Error as SvcError;
+use serde::{de::Error, Deserialize, Deserializer};
+use serde_derive::Serialize;
+use std::sync::Arc;
+use svc_error::{extension::sentry, Error as SvcError};
 
 pub use handler::handler;
 
+pub mod event;
 mod handler;
 
 #[derive(Deserialize)]
 #[serde(tag = "type", content = "payload", rename_all = "snake_case")]
-pub(crate) enum Request {
+pub enum Request {
     ConnectRequest(ConnectRequest),
 }
 
 #[derive(Deserialize)]
-pub(crate) struct ConnectRequest {
+pub struct ConnectRequest {
     classroom_id: ClassroomId,
     token: String,
+    #[serde(deserialize_with = "deserialize_agent_label")]
     agent_label: String,
+}
+
+fn deserialize_agent_label<'de, D>(de: D) -> Result<String, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let s = String::deserialize(de)?;
+    if s.is_empty() {
+        return Err(D::Error::custom("agent_label is empty"));
+    }
+
+    Ok(s)
 }
 
 #[derive(Serialize)]
 #[serde(tag = "type", content = "payload", rename_all = "snake_case")]
-pub(crate) enum Response {
+pub enum Response {
     ConnectSuccess,
-    ConnectFailure(SvcError),
+    UnrecoverableSessionError(SvcError),
+    RecoverableSessionError(SvcError),
 }
 
 #[derive(PartialEq, Debug)]
-enum ConnectError {
+enum UnrecoverableSessionError {
+    AccessDenied,
     UnsupportedRequest,
     Unauthenticated,
-    AccessDenied,
-    DbConnAcquisitionFailed,
-    DbQueryFailed,
+    InternalServerError,
     SerializationFailed,
-    MessagingFailed,
+    AuthTimedOut,
+    PongTimedOut,
+    Replaced,
 }
 
-impl From<ConnectError> for Response {
-    fn from(f: ConnectError) -> Self {
+enum RecoverableSessionError {
+    Terminated,
+}
+
+impl From<UnrecoverableSessionError> for Response {
+    fn from(e: UnrecoverableSessionError) -> Self {
         let mut builder = SvcError::builder();
 
-        builder = match f {
-            ConnectError::UnsupportedRequest => builder
+        builder = match e {
+            UnrecoverableSessionError::UnsupportedRequest => builder
                 .status(StatusCode::UNPROCESSABLE_ENTITY)
-                .kind("unsupported_request", "Unsupported Request"),
-            ConnectError::Unauthenticated => builder
+                .kind("unsupported_request", "Unsupported request"),
+            UnrecoverableSessionError::Unauthenticated => builder
                 .status(StatusCode::UNAUTHORIZED)
                 .kind("unauthenticated", "Unauthenticated"),
-            ConnectError::AccessDenied => builder
+            UnrecoverableSessionError::AccessDenied => builder
                 .status(StatusCode::FORBIDDEN)
-                .kind("access_denied", "Access Denied"),
-            ConnectError::DbConnAcquisitionFailed => {
-                builder.status(StatusCode::UNPROCESSABLE_ENTITY).kind(
-                    "database_connection_acquisition_failed",
-                    "Database connection acquisition failed",
-                )
-            }
-            ConnectError::DbQueryFailed => builder
-                .status(StatusCode::UNPROCESSABLE_ENTITY)
-                .kind("database_query_failed", "Database query failed"),
-            ConnectError::SerializationFailed => builder
+                .kind("access_denied", "Access denied"),
+            UnrecoverableSessionError::InternalServerError => builder
+                .status(StatusCode::INTERNAL_SERVER_ERROR)
+                .kind("internal_server_error", "Internal server error"),
+            UnrecoverableSessionError::SerializationFailed => builder
                 .status(StatusCode::UNPROCESSABLE_ENTITY)
                 .kind("serialization_failed", "Serialization failed"),
-            ConnectError::MessagingFailed => builder
+            UnrecoverableSessionError::AuthTimedOut => builder
                 .status(StatusCode::UNPROCESSABLE_ENTITY)
-                .kind("messaging_failed", "Messaging failed"),
+                .kind("auth_timed_out", "Auth timed out"),
+            UnrecoverableSessionError::PongTimedOut => builder
+                .status(StatusCode::UNPROCESSABLE_ENTITY)
+                .kind("pong_timed_out", "Pong timed out"),
+            UnrecoverableSessionError::Replaced => builder
+                .status(StatusCode::UNPROCESSABLE_ENTITY)
+                .kind("replaced", "replaced"),
         };
 
-        let error = builder.build();
+        Response::UnrecoverableSessionError(builder.build())
+    }
+}
 
-        Response::ConnectFailure(error)
+impl From<RecoverableSessionError> for Response {
+    fn from(e: RecoverableSessionError) -> Self {
+        let mut builder = SvcError::builder();
+
+        builder = match e {
+            RecoverableSessionError::Terminated => builder
+                .status(StatusCode::UNPROCESSABLE_ENTITY)
+                .kind("terminated", "terminated"),
+        };
+
+        Response::RecoverableSessionError(builder.build())
+    }
+}
+
+impl From<anyhow::Error> for Response {
+    fn from(e: anyhow::Error) -> Self {
+        let err = SvcError::builder()
+            .status(StatusCode::INTERNAL_SERVER_ERROR)
+            .kind("internal_server_error", "Internal server error")
+            .detail(&e.to_string())
+            .build();
+
+        if let Err(e) = sentry::send(Arc::new(e)) {
+            tracing::error!(error = %e, "Failed to send error to sentry");
+        }
+
+        Response::UnrecoverableSessionError(err)
     }
 }

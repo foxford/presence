@@ -1,13 +1,14 @@
 id = "presence.dev.svc.example.org"
 listener_address = "0.0.0.0:3000"
 metrics_listener_address = "0.0.0.0:3001"
+internal_listener_address = "0.0.0.0:3002"
 svc_audience = "svc.example.org"
 
 [websocket]
 ping_interval = "30s"
 pong_expiration_interval = "5s"
 authentication_timeout = "5s"
-check_old_connection_interval = "5s"
+wait_before_close_connection = "10s"
 
 [authn."svc.example.org"]
 audience = ["dev.svc.example.org"]

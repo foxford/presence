@@ -3,3 +3,5 @@
 App.toml
 /.env
 /deploy
+nats.creds
+docker/development/nats/nats.conf

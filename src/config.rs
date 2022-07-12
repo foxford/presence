@@ -9,6 +9,7 @@ pub struct Config {
     pub id: AccountId,
     pub listener_address: SocketAddr,
     pub metrics_listener_address: SocketAddr,
+    pub internal_listener_address: SocketAddr,
     pub sentry: Option<SentryConfig>,
     pub authn: AuthnConfig,
     pub websocket: WebSocketConfig,
@@ -26,7 +27,7 @@ pub struct WebSocketConfig {
     #[serde(with = "humantime_serde")]
     pub authentication_timeout: Duration,
     #[serde(with = "humantime_serde")]
-    pub check_old_connection_interval: Duration,
+    pub wait_before_close_connection: Duration,
 }
 
 #[derive(Clone, Debug, Deserialize)]

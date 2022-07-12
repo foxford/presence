@@ -6,6 +6,7 @@ use sqlx::{
 };
 use std::collections::Bound;
 use svc_agent::AgentId;
+use uuid::Uuid;
 
 pub struct AgentSessionHistory {
     pub id: SessionId,
@@ -98,12 +99,12 @@ impl UpdateLifetimeQuery {
     }
 }
 
-pub struct UpdateLifetimesQuery<'a> {
-    replica_id: &'a str,
+pub struct UpdateLifetimesQuery {
+    replica_id: Uuid,
 }
 
-impl<'a> UpdateLifetimesQuery<'a> {
-    pub fn by_replica(replica_id: &'a str) -> Self {
+impl UpdateLifetimesQuery {
+    pub fn by_replica(replica_id: Uuid) -> Self {
         Self { replica_id }
     }
 
@@ -136,12 +137,12 @@ impl<'a> UpdateLifetimesQuery<'a> {
 }
 
 pub struct InsertFromAgentSessionQuery<'a> {
-    replica_id: &'a str,
+    replica_id: Uuid,
     except: &'a [SessionId],
 }
 
 impl<'a> InsertFromAgentSessionQuery<'a> {
-    pub fn by_replica(replica_id: &'a str) -> Self {
+    pub fn by_replica(replica_id: Uuid) -> Self {
         Self {
             replica_id,
             except: &[],

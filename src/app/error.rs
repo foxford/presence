@@ -11,7 +11,7 @@ struct ErrorKindProperties {
     status: StatusCode,
     kind: &'static str,
     title: &'static str,
-    _is_notify_sentry: bool,
+    is_notify_sentry: bool,
 }
 
 #[allow(clippy::enum_variant_names)]
@@ -19,16 +19,19 @@ struct ErrorKindProperties {
 pub enum ErrorKind {
     DbConnAcquisitionFailed,
     DbQueryFailed,
-    SerializationFailed,
-    ResponseBuildFailed,
     AccessDenied,
     AuthorizationFailed,
+    SerializationFailed,
+    ResponseBuildFailed,
+    ShutdownFailed,
+    MovingSessionToHistoryFailed,
+    ReceivingResponseFailed,
 }
 
 impl ErrorKind {
-    pub fn _is_notify_sentry(self) -> bool {
+    pub fn is_notify_sentry(self) -> bool {
         let properties: ErrorKindProperties = self.into();
-        properties._is_notify_sentry
+        properties.is_notify_sentry
     }
 }
 
@@ -46,37 +49,55 @@ impl From<ErrorKind> for ErrorKindProperties {
                 status: StatusCode::UNPROCESSABLE_ENTITY,
                 kind: "database_connection_acquisition_failed",
                 title: "Database connection acquisition failed",
-                _is_notify_sentry: true,
+                is_notify_sentry: true,
             },
             ErrorKind::DbQueryFailed => ErrorKindProperties {
                 status: StatusCode::UNPROCESSABLE_ENTITY,
                 kind: "database_query_failed",
                 title: "Database query failed",
-                _is_notify_sentry: true,
-            },
-            ErrorKind::SerializationFailed => ErrorKindProperties {
-                status: StatusCode::UNPROCESSABLE_ENTITY,
-                kind: "serialization_failed",
-                title: "Serialization failed",
-                _is_notify_sentry: true,
-            },
-            ErrorKind::ResponseBuildFailed => ErrorKindProperties {
-                status: StatusCode::UNPROCESSABLE_ENTITY,
-                kind: "response_build_failed",
-                title: "Response build failed",
-                _is_notify_sentry: true,
+                is_notify_sentry: true,
             },
             ErrorKind::AccessDenied => ErrorKindProperties {
                 status: StatusCode::FORBIDDEN,
                 kind: "access_denied",
                 title: "Access denied",
-                _is_notify_sentry: false,
+                is_notify_sentry: false,
             },
             ErrorKind::AuthorizationFailed => ErrorKindProperties {
                 status: StatusCode::UNPROCESSABLE_ENTITY,
                 kind: "authorization_failed",
                 title: "Authorization failed",
-                _is_notify_sentry: false,
+                is_notify_sentry: false,
+            },
+            ErrorKind::SerializationFailed => ErrorKindProperties {
+                status: StatusCode::UNPROCESSABLE_ENTITY,
+                kind: "serialization_failed",
+                title: "Serialization failed",
+                is_notify_sentry: true,
+            },
+            ErrorKind::ResponseBuildFailed => ErrorKindProperties {
+                status: StatusCode::UNPROCESSABLE_ENTITY,
+                kind: "response_build_failed",
+                title: "Response build failed",
+                is_notify_sentry: true,
+            },
+            ErrorKind::ShutdownFailed => ErrorKindProperties {
+                status: StatusCode::INTERNAL_SERVER_ERROR,
+                kind: "shutdown_failed",
+                title: "Shutdown failed",
+                is_notify_sentry: true,
+            },
+            ErrorKind::MovingSessionToHistoryFailed => ErrorKindProperties {
+                status: StatusCode::INTERNAL_SERVER_ERROR,
+                kind: "move_sessions_to_history_failed",
+                title: "Move sessions to history failed",
+                is_notify_sentry: true,
+            },
+            ErrorKind::ReceivingResponseFailed => ErrorKindProperties {
+                status: StatusCode::UNPROCESSABLE_ENTITY,
+                kind: "receiving_response_failed",
+                title: "Receiving response failed",
+                is_notify_sentry: true,
             },
         }
     }
@@ -105,8 +126,8 @@ impl Error {
             .build()
     }
 
-    pub fn _notify_sentry(&self) {
-        if !self.kind._is_notify_sentry() {
+    pub fn notify_sentry(&self) {
+        if !self.kind.is_notify_sentry() {
             return;
         }
 
@@ -118,6 +139,8 @@ impl Error {
 
 impl IntoResponse for Error {
     fn into_response(self) -> Response<BoxBody> {
+        self.notify_sentry();
+
         let properties: ErrorKindProperties = self.kind.into();
         (properties.status, Json(&self.to_svc_error())).into_response()
     }

@@ -1,5 +1,9 @@
 use crate::{
-    app::{metrics::Metrics, state::AppState},
+    app::{
+        error::{Error, ErrorKind},
+        metrics::Metrics,
+        state::AppState,
+    },
     authz::AuthzCache,
 };
 use anyhow::{Context, Result};
@@ -11,18 +15,22 @@ use tokio::sync::{mpsc, watch};
 use tracing::{error, info};
 
 mod api;
-mod error;
 mod history_manager;
-pub mod nats;
+mod replica;
 mod router;
 mod ws;
 
+pub mod cluster_ip;
+pub mod error;
 pub mod metrics;
+pub mod nats;
 pub mod session_manager;
 pub mod state;
 
 pub async fn run(db: PgPool, authz_cache: Option<AuthzCache>) -> Result<()> {
-    let replica_id = var("APP_AGENT_LABEL").expect("APP_AGENT_LABEL must be specified");
+    let replica_label = var("APP_AGENT_LABEL").expect("APP_AGENT_LABEL must be specified");
+    let replica_id = replica::register(&db, replica_label).await?;
+    info!("Replica successfully registered: {:?}", replica_id);
 
     let config = crate::config::load().context("Failed to load config")?;
     info!("App config: {:?}", config);
@@ -35,44 +43,66 @@ pub async fn run(db: PgPool, authz_cache: Option<AuthzCache>) -> Result<()> {
         .context("Error converting authz config to clients")?;
 
     // A channel for managing agent session via sending commands from WebSocket handler
-    let (cmd_tx, cmd_rx) = mpsc::unbounded_channel::<session_manager::Command>();
+    let (cmd_tx, cmd_rx) = mpsc::unbounded_channel::<session_manager::SessionCommand>();
 
     let nats_client = {
         info!("Connecting to NATS");
-        nats::NatsClient::new(&config.nats.url)?
+        nats::Client::new(&config.nats.url)?
     };
 
     let state = AppState::new(
         config.clone(),
-        db,
+        db.clone(),
         authz,
-        replica_id.clone(),
+        replica_id,
         cmd_tx,
         nats_client.clone(),
         Metrics::new(),
     );
-    let router = router::new(state.clone(), config.authn.clone());
 
     // Move hanging sessions from last time to history
-    if let Err(e) = history_manager::move_all_sessions(state.clone(), &replica_id).await {
-        error!(error = %e, "Failed to move all sessions to history");
-    }
+    history_manager::move_all_sessions(state.clone(), replica_id)
+        .await
+        .context("Failed to move all sessions to history")?;
 
     let metrics_server = svc_utils::metrics::MetricsServer::new(config.metrics_listener_address);
 
     // For graceful shutdown
     let (shutdown_tx, shutdown_rx) = watch::channel(());
 
+    // Keeps all active sessions on a replica
+    // let sessions = SessionMap::new();
+    let session_manager = session_manager::run(cmd_rx, shutdown_rx.clone());
+
+    let router = router::new(state.clone(), config.authn.clone());
+    let internal_router = router::new_internal(state.clone());
+
+    // Public API
     let mut shutdown_server_rx = shutdown_rx.clone();
     let server = tokio::spawn(
         axum::Server::bind(&config.listener_address)
             .serve(router.into_make_service())
             .with_graceful_shutdown(async move {
                 shutdown_server_rx.changed().await.ok();
+
+                let wait_before_close_connection = config.websocket.wait_before_close_connection;
+                info!(
+                    "Waiting for {}s before closing WebSocket connections",
+                    wait_before_close_connection.as_secs()
+                );
+                tokio::time::sleep(wait_before_close_connection).await;
             }),
     );
 
-    let session_manager = session_manager::run(state.clone(), cmd_rx, shutdown_rx);
+    // Internal API
+    let mut shutdown_server_rx = shutdown_rx.clone();
+    let internal_server = tokio::spawn(
+        axum::Server::bind(&config.internal_listener_address)
+            .serve(internal_router.into_make_service())
+            .with_graceful_shutdown(async move {
+                shutdown_server_rx.changed().await.ok();
+            }),
+    );
 
     // Waiting for signals for graceful shutdown
     let mut signals_stream = signal_hook_tokio::Signals::new(TERM_SIGNALS)?.fuse();
@@ -82,24 +112,53 @@ pub async fn run(db: PgPool, authz_cache: Option<AuthzCache>) -> Result<()> {
     shutdown_tx.send(()).ok();
 
     // Move hanging sessions to history
-    if let Err(e) = history_manager::move_all_sessions(state.clone(), &replica_id).await {
-        error!(error = %e, "Failed to move all sessions to history");
+    if let Err(e) = history_manager::move_all_sessions(state.clone(), replica_id).await {
+        report_error(
+            ErrorKind::MovingSessionToHistoryFailed,
+            "Failed to move all sessions to history",
+            e,
+        );
     }
 
-    // Make sure server and session manager are stopped
-    if let Err(err) = server.await {
-        error!(error = %err, "Failed to await server completion");
+    // Make sure session manager, server, and others are stopped
+    if let Err(e) = session_manager.await {
+        report_error(
+            ErrorKind::ShutdownFailed,
+            "Failed to await session manager completion",
+            e.into(),
+        );
     }
 
-    if let Err(err) = session_manager.await {
-        error!(error = %err, "Failed to await session manager completion");
+    if let Err(e) = server.await {
+        report_error(
+            ErrorKind::ShutdownFailed,
+            "Failed to await server completion",
+            e.into(),
+        );
     }
 
-    if let Err(err) = nats_client.shutdown().await {
-        error!(error = %err, "Nats client shutdown failed");
+    if let Err(e) = internal_server.await {
+        report_error(
+            ErrorKind::ShutdownFailed,
+            "Failed to await internal server completion",
+            e.into(),
+        );
+    }
+
+    if let Err(e) = replica::terminate(&db, replica_id).await {
+        report_error(ErrorKind::ShutdownFailed, "Failed to terminate replica", e);
+    }
+
+    if let Err(e) = nats_client.shutdown().await {
+        report_error(ErrorKind::ShutdownFailed, "Nats client shutdown failed", e);
     }
 
     metrics_server.shutdown().await;
 
     Ok(())
+}
+
+fn report_error(kind: ErrorKind, msg: &str, error: anyhow::Error) {
+    error!(error = %error, msg);
+    Error::new(kind, error).notify_sentry();
 }
