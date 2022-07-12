@@ -50,4 +50,4 @@ optional = true
 local_ip = ["local-ip-address"]
 
 [dev-dependencies]
-testcontainers = "0.12"
+testcontainers = "0.14"
