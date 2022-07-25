@@ -2,7 +2,7 @@ replicaCount: 2
 
 app:
   image:
-    repository: foxford/presence
+    repository: cr.yandex/crp1of6bddata8ain3q5/presence
     tag: ""
 
   resources:
@@ -47,7 +47,7 @@ app:
 
 migrations:
   image:
-    repository: foxford/presence-migration
+    repository: cr.yandex/crp1of6bddata8ain3q5/presence-migration
     tag: ""
 
   resources:
