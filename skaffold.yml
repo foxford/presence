@@ -2,10 +2,10 @@ apiVersion: skaffold/v2beta11
 kind: Config
 build:
   artifacts:
-    - image: foxford/presence-migration
+    - image: cr.yandex/crp1of6bddata8ain3q5/presence-migration
       docker:
         dockerfile: docker/migration.dockerfile
-    - image: foxford/presence
+    - image: cr.yandex/crp1of6bddata8ain3q5/presence
       docker:
         dockerfile: docker/Dockerfile
   tagPolicy:
@@ -20,8 +20,8 @@ deploy:
       - name: presence
         chartPath: chart
         artifactOverrides:
-          app.image: foxford/presence
-          migrations.image: foxford/presence-migration
+          app.image: cr.yandex/crp1of6bddata8ain3q5/presence
+          migrations.image: cr.yandex/crp1of6bddata8ain3q5/presence-migration
         imageStrategy:
           helm: {}
         valuesFiles:
