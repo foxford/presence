@@ -1,8 +1,8 @@
-use testcontainers::{clients, images, Container, Docker};
+use testcontainers::{clients, images, Container};
 
 pub struct PostgresHandle<'a> {
     pub connection_string: String,
-    _container: Container<'a, clients::Cli, images::postgres::Postgres>,
+    _container: Container<'a, images::postgres::Postgres>,
 }
 
 pub struct TestContainer {
@@ -21,7 +21,7 @@ impl TestContainer {
         let node = self.docker.run(image);
         let connection_string = format!(
             "postgres://postgres:postgres@localhost:{}",
-            node.get_host_port(5432).expect("get host port"),
+            node.get_host_port_ipv4(5432)
         );
         PostgresHandle {
             connection_string,
