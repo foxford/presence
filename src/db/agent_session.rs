@@ -152,8 +152,8 @@ impl AgentList {
             OFFSET $3
             "#,
             self.classroom_id as ClassroomId,
-            self.limit as u32,
-            self.offset as u32
+            self.limit as i32,
+            self.offset as i32
         )
         .fetch_all(conn)
         .await
