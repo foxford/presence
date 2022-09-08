@@ -6,12 +6,12 @@ metadata:
   name: {{ include "presence.fullname" . }}-app
 data:
   App.toml: |
-    {{- $id := list (include "presence.name" . ) (include "presence.shortNamespace" .) .Values.app.svc.audience | compact | join "." }}
+    {{- $id := list (include "presence.name" . ) (include "presence.audienceEnvironment" .) .Values.app.svc.audience | compact | join "." }}
     id = {{ $id | quote }}
     listener_address = "0.0.0.0:8080"
     internal_listener_address = "0.0.0.0:8081"
     metrics_listener_address = "0.0.0.0:8888"
-    {{- $svc_audience := list (include "presence.shortNamespace" $) .Values.app.svc.audience | compact | join "." }}
+    {{- $svc_audience := list (include "presence.audienceEnvironment" $) .Values.app.svc.audience | compact | join "." }}
     svc_audience = {{ $svc_audience | quote }}
 
     [websocket]
@@ -30,7 +30,7 @@ data:
     ##
     ## SVC
     ##
-    {{- $svc_audience := list (include "presence.shortNamespace" $) .audience | compact | join "." }}
+    {{- $svc_audience := list (include "presence.audienceEnvironment" $) .audience | compact | join "." }}
     {{- with .authn }}
     [authn.{{ $svc_audience | quote }}]
     audience = [{{ $svc_audience | quote }}]
@@ -46,7 +46,7 @@ data:
     {{- if eq "local" .type }}
     trusted = [
       {{- range $account_label := .trusted }}
-        {{ (list $account_label (include "presence.shortNamespace" $) $.Values.app.svc.audience) | compact | join "." | quote }},
+        {{ (list $account_label (include "presence.audienceEnvironment" $) $.Values.app.svc.audience) | compact | join "." | quote }},
       {{- end }}
     ]
     {{- end }}
@@ -71,8 +71,8 @@ data:
     ##
     ## {{ .audience }}
     ##
-    {{- $svc_audience := list (include "presence.shortNamespace" $) "svc" .audience | compact | join "." }}
-    {{- $usr_audience := list (include "presence.shortNamespace" $) "usr" .audience | compact | join "." }}
+    {{- $svc_audience := list (include "presence.audienceEnvironment" $) "svc" .audience | compact | join "." }}
+    {{- $usr_audience := list (include "presence.audienceEnvironment" $) "usr" .audience | compact | join "." }}
     {{- with "authn" | get . }}
     [authn.{{ list "iam" $svc_audience | join "." | quote }}]
     audience = [{{ $svc_audience | quote }}, {{ $usr_audience | quote }}]
@@ -80,7 +80,7 @@ data:
     key = {{ "key" | get . | quote }}
     {{- end }}
 
-    {{- $ns_audience := list (include "presence.shortNamespace" $) .audience | compact | join "."  }}
+    {{- $ns_audience := list (include "presence.audienceEnvironment" $) .audience | compact | join "."  }}
     {{- println "" }}
 
     {{- with "authz" | get . }}
@@ -97,7 +97,7 @@ data:
     {{- if eq "local" .type }}
     trusted = [
       {{- range $account_label := .trusted }}
-        {{ (list $account_label (include "presence.shortNamespace" $) $.Values.app.svc.audience) | compact | join "." | quote }},
+        {{ (list $account_label (include "presence.audienceEnvironment" $) $.Values.app.svc.audience) | compact | join "." | quote }},
       {{- end }}
     ]
     {{- end }}
