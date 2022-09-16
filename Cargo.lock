@@ -1201,6 +1201,20 @@ dependencies = [
  "base64 0.13.0",
  "bytes",
  "chrono",
+ "serde",
+ "serde-value",
+ "serde_json",
+]
+
+[[package]]
+name = "k8s-openapi"
+version = "0.16.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6d9455388f4977de4d0934efa9f7d36296295537d774574113a20f6082de03da"
+dependencies = [
+ "base64 0.13.0",
+ "bytes",
+ "chrono",
  "http",
  "percent-encoding",
  "serde",
@@ -1215,7 +1229,7 @@ version = "0.74.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a527a8001a61d8d470dab27ac650889938760c243903e7cd90faaf7c60a34bdd"
 dependencies = [
- "k8s-openapi",
+ "k8s-openapi 0.15.0",
  "kube-client",
  "kube-core",
 ]
@@ -1238,7 +1252,7 @@ dependencies = [
  "hyper-openssl",
  "hyper-timeout",
  "jsonpath_lib",
- "k8s-openapi",
+ "k8s-openapi 0.15.0",
  "kube-core",
  "openssl",
  "pem 1.1.0",
@@ -1264,7 +1278,7 @@ dependencies = [
  "chrono",
  "form_urlencoded",
  "http",
- "k8s-openapi",
+ "k8s-openapi 0.15.0",
  "once_cell",
  "serde",
  "serde_json",
@@ -1828,7 +1842,7 @@ dependencies = [
  "futures-util",
  "http",
  "humantime-serde",
- "k8s-openapi",
+ "k8s-openapi 0.16.0",
  "kube",
  "local-ip-address",
  "nats",
