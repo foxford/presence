@@ -1440,9 +1440,9 @@ dependencies = [
 
 [[package]]
 name = "nats"
-version = "0.22.0"
+version = "0.23.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4f42b51fc2560ec17f242ca715a3ece4e97704e6d798162b91f99c3cabef8980"
+checksum = "b3d877cd2e71146efa7065300fc5f5da967f938694b4d65e8bc64cc4a409092c"
 dependencies = [
  "base64 0.13.0",
  "base64-url",
@@ -1460,6 +1460,7 @@ dependencies = [
  "once_cell",
  "parking_lot 0.12.1",
  "regex",
+ "ring",
  "rustls",
  "rustls-native-certs",
  "rustls-pemfile",
