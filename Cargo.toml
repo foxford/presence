@@ -43,7 +43,7 @@ version = "0.15"
 optional = true
 
 [dependencies.local-ip-address]
-version = "0.4"
+version = "0.5"
 optional = true
 
 [features]
