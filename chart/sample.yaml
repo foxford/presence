@@ -1,0 +1,32 @@
+app:
+  svc:
+    audience: svc.test.net
+    credentials:
+      svc-pkcs8-der-credentials:
+        - subPath: svc.public_key
+          mountPath: /app/data/keys/svc.public_key.p8.der
+        - subPath: svc.private_key
+          mountPath: /app/data/keys/svc.private_key.p8.der
+      nats-credentials:
+        - subPath: back-user.creds
+          mountPath: /app/nats.creds
+    authn:
+      key: /app/data/keys/svc.public_key.p8.der
+    authz:
+      type: local
+      trusted:
+        - conference
+  audiences:
+    - audience: foo.bar
+      credentials:
+        foo-pkcs8-der-credentials:
+          - subPath: iam.foo.public_key
+            mountPath: /app/data/keys/iam.foo.public_key.p8.der
+      authn:
+        key: /app/data/keys/iam.foo.public_key.p8.der
+      authz:
+        type: http
+ingress:
+  host: test.net
+sentry:
+  dsn: "https://test@foo.bar/123"
