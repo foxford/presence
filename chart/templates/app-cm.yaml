@@ -110,5 +110,7 @@ data:
     {{- println "" }}
     {{- end }}
 
+    {{- if not eq "disable" .Values.app.nats.url }}
     [nats]
-    url = "nats://nats-back-front-internal-lb:4222"
+    url = {{ .Values.app.nats.url | quote }}
+    {{- end }}
