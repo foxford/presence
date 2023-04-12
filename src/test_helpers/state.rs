@@ -56,9 +56,9 @@ impl TestState {
                 },
                 authz: Default::default(),
                 svc_audience: SVC_AUDIENCE.to_string(),
-                nats: NatsConfig {
+                nats: Some(NatsConfig {
                     url: "localhost:1234".into(),
-                },
+                }),
             },
             db_pool,
             authz: authz.into(),
@@ -117,7 +117,7 @@ impl State for TestState {
         Ok(conn)
     }
 
-    fn nats_client(&self) -> &dyn NatsClient {
-        self.nats_client.as_ref()
+    fn nats_client(&self) -> Option<&dyn NatsClient> {
+        Some(self.nats_client.as_ref())
     }
 }
