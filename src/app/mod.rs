@@ -32,7 +32,7 @@ pub async fn run(db: PgPool, authz_cache: Option<AuthzCache>) -> Result<()> {
     let replica_id = replica::register(&db, replica_label).await?;
     info!("Replica successfully registered: {:?}", replica_id);
 
-    let config = crate::config::load().context("Failed to load config")?;
+    let config = crate::config::load()?;
     info!("App config: {:?}", config);
 
     if let Some(sentry_config) = config.sentry.as_ref() {
