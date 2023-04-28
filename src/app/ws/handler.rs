@@ -30,7 +30,7 @@ use axum::{
     },
     response::IntoResponse,
 };
-use futures_util::{stream::SplitSink, SinkExt, StreamExt};
+use futures_util::{future::Either, stream::SplitSink, SinkExt, StreamExt};
 use serde::Serialize;
 use sqlx::types::time::OffsetDateTime;
 use std::{str::FromStr, sync::Arc};
@@ -41,6 +41,7 @@ use svc_authn::{
 };
 use svc_error::extension::sentry;
 use tokio::time::{interval, timeout, MissedTickBehavior};
+use tokio_stream::wrappers::BroadcastStream;
 use tracing::{error, info, warn};
 
 pub async fn handler<S: State>(
@@ -76,33 +77,35 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
                         }
                     };
 
-                    // Subscribe to events from nats
-                    let nats_rx = match state
-                        .nats_client()
-                        .subscribe(session_key.clone().classroom_id)
-                        .await
-                    {
-                        Ok(rx) => rx,
-                        Err(e) => {
-                            error!(error = ?e);
-                            close_conn_with_msg(sender, Response::from(e)).await;
-                            return;
+                    let nats_rx = match state.nats_client() {
+                        Some(nats_client) => {
+                            match nats_client
+                                .subscribe(session_key.clone().classroom_id)
+                                .await
+                            {
+                                Ok(rx) => Either::Left(BroadcastStream::new(rx)),
+                                Err(e) => {
+                                    error!(error = ?e);
+                                    close_conn_with_msg(sender, Response::from(e)).await;
+                                    return;
+                                }
+                            }
                         }
+                        None => Either::Right(tokio_stream::pending()),
                     };
 
-                    // Send agent.enter others
-                    let event = Event::new(Label::AgentEnter, session_key.clone().agent_id);
-                    if let Err(e) = state
-                        .nats_client()
-                        .publish_event(session_key.clone(), event)
-                    {
-                        error!(error = %e, "Failed to send agent.enter notification");
-                        close_conn_with_msg(
-                            sender,
-                            Response::from(UnrecoverableSessionError::InternalServerError),
-                        )
-                        .await;
-                        return;
+                    if let Some(nats_client) = state.nats_client() {
+                        // Send agent.enter others
+                        let event = Event::new(Label::AgentEnter, session_key.clone().agent_id);
+                        if let Err(e) = nats_client.publish_event(session_key.clone(), event) {
+                            error!(error = %e, "Failed to send agent.enter notification");
+                            close_conn_with_msg(
+                                sender,
+                                Response::from(UnrecoverableSessionError::InternalServerError),
+                            )
+                            .await;
+                            return;
+                        }
                     }
 
                     info!("Successful authentication, session_key: {}", &session_key);
@@ -152,7 +155,15 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
 
     loop {
         tokio::select! {
-            Ok(msg) = nats_rx.recv() => {
+            msg = nats_rx.next() => {
+                let msg = match msg {
+                    Some(Ok(msg)) => msg,
+                    _ => {
+                        warn!("nats stream is over");
+                        continue;
+                    },
+                };
+
                 if let Some(sender_id) = msg.headers.and_then(|h| {
                     h.get(PRESENCE_SENDER_AGENT_ID)
                         .and_then(|s| AgentId::from_str(s).ok())
@@ -177,7 +188,15 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
                 }
             }
             // Get Pong/Close messages from client
-            Some(result) = receiver.next() => {
+            result = receiver.next() => {
+                let result = match result {
+                    Some(result) => result,
+                    None => {
+                        info!("Connection to agent is aborted");
+                        break;
+                    },
+                };
+
                 match result {
                     Ok(Message::Pong(_)) => {
                         ping_sent = false;
@@ -222,7 +241,19 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
                 }
             }
             // Close connections
-            Ok(cmd) = &mut close_rx, if !connect_terminating => {
+            cmd = &mut close_rx => {
+                if connect_terminating {
+                    continue;
+                }
+
+                let cmd = match cmd {
+                    Ok(cmd) => cmd,
+                    Err(_) => {
+                        warn!("cmd channel is closed, leaving...");
+                        break;
+                    }
+                };
+
                 match cmd {
                     ConnectionCommand::Close => {
                         close_conn_with_msg(sender, Response::from(UnrecoverableSessionError::Replaced)).await;
@@ -265,14 +296,13 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
         return;
     }
 
-    let event = Event::new(Label::AgentLeave, session_key.agent_id.clone());
-    if let Err(e) = state
-        .nats_client()
-        .publish_event(session_key.clone(), event)
-    {
-        error!(error = %e, "Failed to send agent.leave notification");
-        send_to_sentry(e);
-        return;
+    if let Some(nats_client) = state.nats_client() {
+        let event = Event::new(Label::AgentLeave, session_key.agent_id.clone());
+        if let Err(e) = nats_client.publish_event(session_key.clone(), event) {
+            error!(error = %e, "Failed to send agent.leave notification");
+            send_to_sentry(e);
+            return;
+        }
     }
 
     if let Err(e) = state.terminate_session(session_key.clone()).await {

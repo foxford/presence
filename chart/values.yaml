@@ -24,6 +24,9 @@ app:
     authentication_timeout: 5s
     wait_before_close_connection: 10s
 
+  nats:
+    url: nats://nats-back-front-internal-lb:4222
+
 migrations:
   image:
     repository: cr.yandex/crp1of6bddata8ain3q5/presence-migration
@@ -55,6 +58,10 @@ clusterService:
 
 tls:
   secretName: tls-certificates
+
+serviceMonitor:
+  labels:
+    release: kube-prometheus-stack
 
 ingress:
   class: nginx

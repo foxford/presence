@@ -29,7 +29,7 @@ data:
     ##
     ## SVC
     ##
-    [authn.{{ .audience | quote }}
+    [authn.{{ .audience | quote }}]
     audience = [{{ .audience | quote }}]
     algorithm = "ES256"
     key = {{ .authn.key | quote }}
@@ -110,5 +110,7 @@ data:
     {{- println "" }}
     {{- end }}
 
+    {{- if not (eq "disable" .Values.app.nats.url) }}
     [nats]
-    url = "nats://nats-back-front-internal-lb:4222"
+    url = {{ .Values.app.nats.url | quote }}
+    {{- end }}

@@ -32,7 +32,7 @@ pub async fn run(db: PgPool, authz_cache: Option<AuthzCache>) -> Result<()> {
     let replica_id = replica::register(&db, replica_label).await?;
     info!("Replica successfully registered: {:?}", replica_id);
 
-    let config = crate::config::load().context("Failed to load config")?;
+    let config = crate::config::load()?;
     info!("App config: {:?}", config);
 
     if let Some(sentry_config) = config.sentry.as_ref() {
@@ -45,9 +45,12 @@ pub async fn run(db: PgPool, authz_cache: Option<AuthzCache>) -> Result<()> {
     // A channel for managing agent session via sending commands from WebSocket handler
     let (cmd_tx, cmd_rx) = mpsc::unbounded_channel::<session_manager::SessionCommand>();
 
-    let nats_client = {
-        info!("Connecting to NATS");
-        nats::Client::new(&config.nats.url)?
+    let nats_client = match &config.nats {
+        Some(nats_cfg) => {
+            info!("Connecting to NATS");
+            Some(nats::Client::new(&nats_cfg.url)?)
+        }
+        None => None,
     };
 
     let state = AppState::new(
@@ -149,8 +152,10 @@ pub async fn run(db: PgPool, authz_cache: Option<AuthzCache>) -> Result<()> {
         report_error(ErrorKind::ShutdownFailed, "Failed to terminate replica", e);
     }
 
-    if let Err(e) = nats_client.shutdown().await {
-        report_error(ErrorKind::ShutdownFailed, "Nats client shutdown failed", e);
+    if let Some(nats_client) = nats_client {
+        if let Err(e) = nats_client.shutdown().await {
+            report_error(ErrorKind::ShutdownFailed, "Nats client shutdown failed", e);
+        }
     }
 
     metrics_server.shutdown().await;
