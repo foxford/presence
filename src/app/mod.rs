@@ -26,6 +26,7 @@ pub mod metrics;
 pub mod nats;
 pub mod session_manager;
 pub mod state;
+pub mod util;
 
 pub async fn run(db: PgPool, authz_cache: Option<AuthzCache>) -> Result<()> {
     let replica_label = var("APP_AGENT_LABEL").expect("APP_AGENT_LABEL must be specified");
