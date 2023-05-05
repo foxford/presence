@@ -4,7 +4,6 @@ use std::process;
 
 mod app;
 mod authz;
-mod authz_hack;
 mod classroom;
 mod config;
 mod db;

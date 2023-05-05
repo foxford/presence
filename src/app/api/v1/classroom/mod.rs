@@ -6,7 +6,6 @@ use crate::{
         state::State,
     },
     authz::AuthzObject,
-    authz_hack,
     classroom::ClassroomId,
     db::agent_session,
 };
@@ -48,14 +47,14 @@ async fn do_list_agents<S: State>(
     let account_id = agent_id.as_account_id();
     let object = AuthzObject::new(&["classrooms", &classroom_id.to_string()]).into();
 
+    let audience = state
+        .lookup_known_authz_audience(account_id.audience())
+        .unwrap_or(account_id.audience())
+        .to_owned();
+
     state
         .authz()
-        .authorize(
-            authz_hack::remove_unwanted_parts_from_audience(account_id.audience()),
-            account_id.clone(),
-            object,
-            "read".into(),
-        )
+        .authorize(audience, account_id.clone(), object, "read".into())
         .await
         .measure()?;
 

@@ -15,6 +15,8 @@ use svc_authz::ClientMap as Authz;
 use tokio::sync::{mpsc::UnboundedSender, oneshot};
 use uuid::Uuid;
 
+use super::util::AudienceEstimator;
+
 #[async_trait]
 pub trait State: Send + Sync + Clone + 'static {
     fn config(&self) -> &Config;
@@ -30,6 +32,7 @@ pub trait State: Send + Sync + Clone + 'static {
     async fn delete_session(&self, session_key: SessionKey) -> Result<DeleteSession>;
     async fn get_conn(&self) -> Result<PoolConnection<Postgres>>;
     fn nats_client(&self) -> Option<&dyn NatsClient>;
+    fn lookup_known_authz_audience(&self, aud: &str) -> Option<&str>;
 }
 
 #[derive(Clone)]
@@ -45,6 +48,7 @@ struct InnerState {
     cmd_sender: UnboundedSender<SessionCommand>,
     nats_client: Option<Box<dyn NatsClient>>,
     metrics: Metrics,
+    audience_estimator: AudienceEstimator,
 }
 
 impl AppState {
@@ -57,6 +61,7 @@ impl AppState {
         nats_client: Option<N>,
         metrics: Metrics,
     ) -> Self {
+        let audience_estimator = AudienceEstimator::new(&config.authz);
         Self {
             inner: Arc::new(InnerState {
                 config,
@@ -66,6 +71,7 @@ impl AppState {
                 cmd_sender,
                 nats_client: nats_client.map(|c| Box::new(c) as Box<dyn NatsClient>),
                 metrics,
+                audience_estimator,
             }),
         }
     }
@@ -130,5 +136,9 @@ impl State for AppState {
 
     fn nats_client(&self) -> Option<&dyn NatsClient> {
         self.inner.nats_client.as_ref().map(Box::as_ref)
+    }
+
+    fn lookup_known_authz_audience(&self, aud: &str) -> Option<&str> {
+        self.inner.audience_estimator.estimate(aud)
     }
 }

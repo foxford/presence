@@ -4,6 +4,7 @@ use crate::{
         nats::NatsClient,
         session_manager::{ConnectionCommand, DeleteSession, TerminateSession},
         state::State,
+        util::AudienceEstimator,
     },
     classroom::ClassroomId,
     config::{Config, NatsConfig, WebSocketConfig},
@@ -30,40 +31,44 @@ pub struct TestState {
     authz: Authz,
     replica_id: Uuid,
     nats_client: Arc<dyn NatsClient>,
+    audience_estimator: AudienceEstimator,
 }
 
 impl TestState {
     pub fn new(db_pool: TestDb, authz: TestAuthz, replica_id: Uuid) -> Self {
-        Self {
-            config: Config {
-                id: AccountId::new("presence", SVC_AUDIENCE),
-                listener_address: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 3000),
-                metrics_listener_address: SocketAddr::new(
-                    IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
-                    3001,
-                ),
-                internal_listener_address: SocketAddr::new(
-                    IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
-                    3002,
-                ),
-                sentry: None,
-                authn: Default::default(),
-                websocket: WebSocketConfig {
-                    ping_interval: Default::default(),
-                    pong_expiration_interval: Default::default(),
-                    authentication_timeout: Default::default(),
-                    wait_before_close_connection: Default::default(),
-                },
-                authz: Default::default(),
-                svc_audience: SVC_AUDIENCE.to_string(),
-                nats: Some(NatsConfig {
-                    url: "localhost:1234".into(),
-                }),
+        let config = Config {
+            id: AccountId::new("presence", SVC_AUDIENCE),
+            listener_address: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 3000),
+            metrics_listener_address: SocketAddr::new(
+                IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
+                3001,
+            ),
+            internal_listener_address: SocketAddr::new(
+                IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
+                3002,
+            ),
+            sentry: None,
+            authn: Default::default(),
+            websocket: WebSocketConfig {
+                ping_interval: Default::default(),
+                pong_expiration_interval: Default::default(),
+                authentication_timeout: Default::default(),
+                wait_before_close_connection: Default::default(),
             },
+            authz: Default::default(),
+            svc_audience: SVC_AUDIENCE.to_string(),
+            nats: Some(NatsConfig {
+                url: "localhost:1234".into(),
+            }),
+        };
+        let audience_estimator = AudienceEstimator::new(&config.authz);
+        Self {
+            config,
             db_pool,
             authz: authz.into(),
             replica_id,
             nats_client: Arc::new(TestNatsClient {}) as Arc<dyn NatsClient>,
+            audience_estimator,
         }
     }
 }
@@ -119,5 +124,9 @@ impl State for TestState {
 
     fn nats_client(&self) -> Option<&dyn NatsClient> {
         Some(self.nats_client.as_ref())
+    }
+
+    fn lookup_known_authz_audience(&self, aud: &str) -> Option<&str> {
+        self.audience_estimator.estimate(aud)
     }
 }

@@ -13,7 +13,6 @@ use crate::{
         },
     },
     authz::AuthzObject,
-    authz_hack,
     classroom::ClassroomId,
     db::{
         self,
@@ -472,14 +471,14 @@ async fn authorize_agent<S: State>(
     let account_id = agent_id.as_account_id();
     let object = AuthzObject::new(&["classrooms", &classroom_id.to_string()]).into();
 
+    let audience = state
+        .lookup_known_authz_audience(account_id.audience())
+        .unwrap_or(account_id.audience())
+        .to_owned();
+
     if let Err(err) = state
         .authz()
-        .authorize(
-            authz_hack::remove_unwanted_parts_from_audience(account_id.audience()),
-            account_id.clone(),
-            object,
-            "connect".into(),
-        )
+        .authorize(audience, account_id.clone(), object, "connect".into())
         .await
         .measure()
     {
