@@ -190,8 +190,8 @@ fn add_new_subscription(
     subscribers: &mut Subscriptions,
     classroom_id: ClassroomId,
 ) -> io::Result<broadcast::Receiver<Message>> {
-    let topic = format!("classrooms.{}.*", classroom_id);
-    let options = SubscribeOptions::bind_stream("classrooms-reliable".into())
+    let topic = format!("classroom.{}.*", classroom_id);
+    let options = SubscribeOptions::bind_stream("classroom-out".into())
         .deliver_new()
         .ack_none()
         .replay_instant();
