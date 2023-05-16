@@ -55,6 +55,7 @@ clusterService:
   ports:
     http: 8080
     metrics: 8888
+    internal: 8081
 
 tls:
   secretName: tls-certificates
