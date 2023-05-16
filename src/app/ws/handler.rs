@@ -1,6 +1,8 @@
 use crate::{
     app::{
-        self, history_manager,
+        self,
+        api::v1::session::Reason,
+        history_manager,
         metrics::AuthzMeasure,
         nats::PRESENCE_SENDER_AGENT_ID,
         replica,
@@ -420,7 +422,8 @@ async fn create_agent_session<S: State>(
                 })?;
 
             match replica::close_connection(state.clone(), replica_ip.ip(), session_key).await {
-                Ok(DeleteResponse::DeleteSuccess) => {
+                Ok(DeleteResponse::DeleteSuccess)
+                | Ok(DeleteResponse::DeleteFailure(Reason::NotFound)) => {
                     match agent_session::InsertQuery::new(
                         agent_id,
                         classroom_id,
