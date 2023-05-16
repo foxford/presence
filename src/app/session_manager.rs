@@ -56,9 +56,8 @@ pub fn run(
                         SessionCommand::Terminate(session_key, resp) => {
                             match sessions.remove(&session_key) {
                                 Some((session_id, cmd)) => {
-                                    if cmd.send(ConnectionCommand::Close).is_ok() {
-                                        resp.send(TerminateSession::Found(session_id)).ok();
-                                    }
+                                    resp.send(TerminateSession::Found(session_id)).ok();
+                                    cmd.send(ConnectionCommand::Close).is_ok();
                                 }
                                 None => {
                                     resp.send(TerminateSession::NotFound).ok();
