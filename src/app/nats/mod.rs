@@ -135,11 +135,11 @@ impl NatsClient for Client {
 
     fn publish_event(&self, session_key: SessionKey, event: Event) -> Result<()> {
         let data = serde_json::to_string(&event)?;
-        let subject = format!("classrooms.{}.presence", session_key.classroom_id);
+        let topic = mk_topic(session_key.classroom_id, "presence");
         let mut headers = HeaderMap::new();
         headers.insert(PRESENCE_SENDER_AGENT_ID, session_key.agent_id.to_string());
 
-        let msg = Message::new(&subject, None, data, Some(headers));
+        let msg = Message::new(&topic, None, data, Some(headers));
         self.jetstream.publish_message(&msg)?;
 
         Ok(())
@@ -185,12 +185,16 @@ fn nats_loop(js: &JetStream, rx: Receiver<Cmd>) {
     }
 }
 
+fn mk_topic(classroom_id: ClassroomId, tail: &str) -> String {
+    format!("classroom.{classroom_id}.{tail}")
+}
+
 fn add_new_subscription(
     js: &JetStream,
     subscribers: &mut Subscriptions,
     classroom_id: ClassroomId,
 ) -> io::Result<broadcast::Receiver<Message>> {
-    let topic = format!("classroom.{}.*", classroom_id);
+    let topic = mk_topic(classroom_id, "*");
     let options = SubscribeOptions::bind_stream("classroom-out".into())
         .deliver_new()
         .ack_none()
