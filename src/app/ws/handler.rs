@@ -6,8 +6,8 @@ use crate::{
         metrics::AuthzMeasure,
         nats::PRESENCE_SENDER_AGENT_ID,
         replica,
+        session_manager::ConnectionCommand,
         session_manager::TerminateSession,
-        session_manager::{ConnectionCommand, DeleteSession},
         state::State,
         ws::{
             event::{Event, Label},
@@ -258,20 +258,6 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
                 match cmd {
                     ConnectionCommand::Close => {
                         close_conn_with_msg(sender, Response::from(UnrecoverableSessionError::Replaced)).await;
-                    }
-                    ConnectionCommand::CloseAndDelete(resp) => {
-                        close_conn_with_msg(sender, Response::from(UnrecoverableSessionError::Replaced)).await;
-
-                        match history_manager::move_single_session(state.clone(), session_id).await {
-                            Ok(_) => {
-                                resp.send(DeleteSession::Success).ok();
-                            }
-                            Err(e) => {
-                                error!(error = %e, "Failed to move session to history");
-                                send_to_sentry(e);
-                                resp.send(DeleteSession::Failure).ok();
-                            }
-                        }
                     }
                     ConnectionCommand::Terminate => {
                         connect_terminating = true;

@@ -19,7 +19,6 @@ pub enum SessionCommand {
 #[derive(Debug)]
 pub enum ConnectionCommand {
     Close,
-    CloseAndDelete(oneshot::Sender<DeleteSession>),
     Terminate,
 }
 
@@ -31,8 +30,7 @@ pub enum TerminateSession {
 
 #[derive(Debug)]
 pub enum DeleteSession {
-    Success,
-    Failure,
+    Success(SessionId),
     NotFound,
 }
 
@@ -67,8 +65,9 @@ pub fn run(
                         // Closes connections and removes them from DB
                         SessionCommand::Delete(session_key, resp) => {
                             match sessions.remove(&session_key) {
-                                Some((_, cmd)) => {
-                                    cmd.send(ConnectionCommand::CloseAndDelete(resp)).ok();
+                                Some((session_id, cmd)) => {
+                                    cmd.send(ConnectionCommand::Close).ok();
+                                    resp.send(DeleteSession::Success(session_id)).ok();
                                 }
                                 None => {
                                     resp.send(DeleteSession::NotFound).ok();
