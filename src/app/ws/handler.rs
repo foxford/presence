@@ -360,7 +360,7 @@ async fn handle_authn_message<S: State>(
             ))
         }
         Err(e) => {
-            error!(error = %e, "Failed to serialize a message");
+            error!(error = %e, "Failed to deserialize a message");
             send_to_sentry(e.into());
             Err(UnrecoverableSessionError::SerializationFailed)
         }
