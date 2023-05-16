@@ -25,7 +25,7 @@ app:
     wait_before_close_connection: 10s
 
   nats:
-    url: nats://nats-back-front-internal-lb:4222
+    url: nats://nats-back-front-cluster:4222
 
 migrations:
   image:
