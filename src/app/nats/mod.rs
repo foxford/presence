@@ -13,7 +13,7 @@ use std::{
 };
 use tokio::{
     sync::{broadcast, mpsc, oneshot},
-    time::{interval, Duration as tokioDuration, Interval, MissedTickBehavior},
+    time::{interval, Duration as TokioDuration, Interval, MissedTickBehavior},
 };
 use tracing::{error, info, warn};
 
@@ -26,7 +26,7 @@ struct Subscribe {
 }
 
 const CLEANUP_TIMEOUT: Duration = Duration::from_secs(600);
-const CLEANUP_PERIOD: tokioDuration = tokioDuration::from_secs(60);
+const CLEANUP_PERIOD: TokioDuration = TokioDuration::from_secs(60);
 
 #[derive(Debug)]
 enum Cmd {
@@ -264,7 +264,7 @@ struct Subscription {
     created_at: Instant,
 }
 
-fn cleanup_interval(d: tokioDuration) -> Interval {
+fn cleanup_interval(d: TokioDuration) -> Interval {
     let mut interval = interval(d);
     interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
     interval
@@ -284,7 +284,7 @@ mod tests {
         subscribers.insert(Uuid::new_v4().into(), tx);
         assert_eq!(subscribers.len(), 1);
 
-        tokio::time::sleep(tokioDuration::from_millis(500)).await;
+        tokio::time::sleep(TokioDuration::from_millis(500)).await;
 
         subscribers.cleanup(Duration::from_millis(300));
         assert_eq!(subscribers.len(), 0);
