@@ -5,7 +5,7 @@ use tokio::{
     task::JoinHandle,
 };
 
-type SessionValue = (SessionId, oneshot::Sender<ConnectionCommand>);
+type SessionValue = (SessionId, mpsc::Sender<ConnectionCommand>);
 
 #[derive(Debug)]
 pub enum SessionCommand {
@@ -55,7 +55,7 @@ pub fn run(
                             match sessions.remove(&session_key) {
                                 Some((session_id, cmd)) => {
                                     resp.send(TerminateSession::Found(session_id)).ok();
-                                    cmd.send(ConnectionCommand::Close).ok();
+                                    cmd.send(ConnectionCommand::Close).await.ok();
                                 }
                                 None => {
                                     resp.send(TerminateSession::NotFound).ok();
@@ -66,7 +66,7 @@ pub fn run(
                         SessionCommand::Delete(session_key, resp) => {
                             match sessions.remove(&session_key) {
                                 Some((session_id, cmd)) => {
-                                    cmd.send(ConnectionCommand::Close).ok();
+                                    cmd.send(ConnectionCommand::Close).await.ok();
                                     resp.send(DeleteSession::Success(session_id)).ok();
                                 }
                                 None => {
@@ -79,7 +79,7 @@ pub fn run(
                 // Graceful shutdown
                 _ = shutdown_rx.changed() => {
                     for (_, (_, cmd)) in sessions {
-                        cmd.send(ConnectionCommand::Terminate).ok();
+                        cmd.send(ConnectionCommand::Terminate).await.ok();
                     }
                     break;
                 }

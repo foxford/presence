@@ -162,7 +162,7 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
                     Some(Ok(msg)) => msg,
                     _ => {
                         warn!("nats stream is over");
-                        continue;
+                        break;
                     },
                 };
 
@@ -246,15 +246,15 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
                 }
             }
             // Close connections
-            cmd = &mut close_rx => {
+            cmd = close_rx.recv() => {
                 if connect_terminating {
                     info!("got some cmd, ignoring");
                     continue;
                 }
 
                 let cmd = match cmd {
-                    Ok(cmd) => cmd,
-                    Err(_) => {
+                    Some(cmd) => cmd,
+                    None => {
                         warn!("cmd channel is closed, leaving...");
                         break;
                     }

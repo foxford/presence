@@ -12,7 +12,10 @@ use async_trait::async_trait;
 use sqlx::{pool::PoolConnection, PgPool, Postgres};
 use std::sync::Arc;
 use svc_authz::ClientMap as Authz;
-use tokio::sync::{mpsc::UnboundedSender, oneshot};
+use tokio::sync::{
+    mpsc::{self, UnboundedSender},
+    oneshot,
+};
 use uuid::Uuid;
 
 use super::util::AudienceEstimator;
@@ -27,7 +30,7 @@ pub trait State: Send + Sync + Clone + 'static {
         &self,
         session_key: SessionKey,
         session_id: SessionId,
-    ) -> Result<oneshot::Receiver<ConnectionCommand>>;
+    ) -> Result<mpsc::Receiver<ConnectionCommand>>;
     async fn terminate_session(&self, session_key: SessionKey) -> Result<TerminateSession>;
     async fn delete_session(&self, session_key: SessionKey) -> Result<DeleteSession>;
     async fn get_conn(&self) -> Result<PoolConnection<Postgres>>;
@@ -99,8 +102,8 @@ impl State for AppState {
         &self,
         session_key: SessionKey,
         session_id: SessionId,
-    ) -> Result<oneshot::Receiver<ConnectionCommand>> {
-        let (tx, rx) = oneshot::channel::<ConnectionCommand>();
+    ) -> Result<mpsc::Receiver<ConnectionCommand>> {
+        let (tx, rx) = mpsc::channel::<ConnectionCommand>(1);
         self.inner
             .cmd_sender
             .send(SessionCommand::Register(session_key, (session_id, tx)))?;

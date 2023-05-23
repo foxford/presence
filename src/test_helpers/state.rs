@@ -21,7 +21,7 @@ use std::{
 };
 use svc_authn::AccountId;
 use svc_authz::ClientMap as Authz;
-use tokio::sync::{broadcast::Receiver, oneshot};
+use tokio::sync::{broadcast::Receiver, mpsc};
 use uuid::Uuid;
 
 #[derive(Clone)]
@@ -104,8 +104,8 @@ impl State for TestState {
         &self,
         _: SessionKey,
         _: SessionId,
-    ) -> Result<oneshot::Receiver<ConnectionCommand>> {
-        let (_, rx) = oneshot::channel::<ConnectionCommand>();
+    ) -> Result<mpsc::Receiver<ConnectionCommand>> {
+        let (_, rx) = mpsc::channel::<ConnectionCommand>(1);
         Ok(rx)
     }
 
