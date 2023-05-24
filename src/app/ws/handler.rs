@@ -157,7 +157,7 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
     loop {
         tokio::select! {
             msg = nats_rx.next() => {
-                info!("got new event from nats");
+                tracing::debug!("got new event from nats");
                 let msg = match msg {
                     Some(Ok(msg)) => msg,
                     _ => {
@@ -191,7 +191,7 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
             }
             // Get Pong/Close messages from client
             result = receiver.next() => {
-                info!("got new message from socket");
+                tracing::debug!("got new message from socket");
                 let result = match result {
                     Some(result) => result,
                     None => {
@@ -227,7 +227,7 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
             }
             // Ping authenticated clients with interval
             _ = ping_interval.tick() => {
-                info!("going to send ping");
+                tracing::debug!("going to send ping");
                 if sender.send(Message::Ping(Vec::new())).await.is_err() {
                     warn!("An agent disconnected (ping not sent)");
                     break;
@@ -238,7 +238,7 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
             }
             // Close connection if pong exceeded timeout
             _ = pong_expiration_interval.tick() => {
-                info!("ping expiration");
+                tracing::debug!("ping expiration");
                 if ping_sent {
                     warn!("Connection is closed (pong timeout exceeded)");
                     close_conn_with_msg(sender, Response::from(UnrecoverableSessionError::PongTimedOut)).await;
@@ -248,7 +248,7 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
             // Close connections
             cmd = close_rx.recv() => {
                 if connect_terminating {
-                    info!("got some cmd, ignoring");
+                    tracing::debug!("got some cmd, ignoring");
                     continue;
                 }
 
@@ -268,7 +268,7 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
                         connect_terminating = true;
                         let msg = serialize_to_json(&Response::from(RecoverableSessionError::Terminated));
                         sender.send(Message::Text(msg)).await.ok();
-                        info!("terminating, notification sent");
+                        tracing::debug!("terminating, notification sent");
 
                         continue;
                     }
@@ -281,13 +281,13 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
             }
         }
     }
-    info!("broke out of loop");
+    tracing::debug!("broke out of loop");
 
     state.metrics().ws_connection_total().dec();
 
     // Skip next steps if the connection is terminating
     if connect_terminating {
-        info!("closing handler earlier since we're terminating");
+        tracing::debug!("closing handler earlier since we're terminating");
         return;
     }
 
