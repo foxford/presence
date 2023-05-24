@@ -13,7 +13,7 @@ use std::{
 };
 use tokio::{
     sync::{broadcast, mpsc, oneshot},
-    time::{interval, Duration as tokioDuration, Interval, MissedTickBehavior},
+    time::{interval, Duration as TokioDuration, Interval, MissedTickBehavior},
 };
 use tracing::{error, info, warn};
 
@@ -26,7 +26,7 @@ struct Subscribe {
 }
 
 const CLEANUP_TIMEOUT: Duration = Duration::from_secs(600);
-const CLEANUP_PERIOD: tokioDuration = tokioDuration::from_secs(60);
+const CLEANUP_PERIOD: TokioDuration = TokioDuration::from_secs(60);
 
 #[derive(Debug)]
 enum Cmd {
@@ -135,11 +135,11 @@ impl NatsClient for Client {
 
     fn publish_event(&self, session_key: SessionKey, event: Event) -> Result<()> {
         let data = serde_json::to_string(&event)?;
-        let subject = format!("classrooms.{}.presence", session_key.classroom_id);
+        let topic = mk_topic(session_key.classroom_id, "presence");
         let mut headers = HeaderMap::new();
         headers.insert(PRESENCE_SENDER_AGENT_ID, session_key.agent_id.to_string());
 
-        let msg = Message::new(&subject, None, data, Some(headers));
+        let msg = Message::new(&topic, None, data, Some(headers));
         self.jetstream.publish_message(&msg)?;
 
         Ok(())
@@ -185,13 +185,17 @@ fn nats_loop(js: &JetStream, rx: Receiver<Cmd>) {
     }
 }
 
+fn mk_topic(classroom_id: ClassroomId, tail: &str) -> String {
+    format!("classroom.{classroom_id}.{tail}")
+}
+
 fn add_new_subscription(
     js: &JetStream,
     subscribers: &mut Subscriptions,
     classroom_id: ClassroomId,
 ) -> io::Result<broadcast::Receiver<Message>> {
-    let topic = format!("classrooms.{}.*", classroom_id);
-    let options = SubscribeOptions::bind_stream("classrooms-reliable".into())
+    let topic = mk_topic(classroom_id, "*");
+    let options = SubscribeOptions::bind_stream("classroom-out".into())
         .deliver_new()
         .ack_none()
         .replay_instant();
@@ -260,7 +264,7 @@ struct Subscription {
     created_at: Instant,
 }
 
-fn cleanup_interval(d: tokioDuration) -> Interval {
+fn cleanup_interval(d: TokioDuration) -> Interval {
     let mut interval = interval(d);
     interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
     interval
@@ -280,7 +284,7 @@ mod tests {
         subscribers.insert(Uuid::new_v4().into(), tx);
         assert_eq!(subscribers.len(), 1);
 
-        tokio::time::sleep(tokioDuration::from_millis(500)).await;
+        tokio::time::sleep(TokioDuration::from_millis(500)).await;
 
         subscribers.cleanup(Duration::from_millis(300));
         assert_eq!(subscribers.len(), 0);

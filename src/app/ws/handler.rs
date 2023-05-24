@@ -1,11 +1,13 @@
 use crate::{
     app::{
-        self, history_manager,
+        self,
+        api::v1::session::Reason,
+        history_manager,
         metrics::AuthzMeasure,
         nats::PRESENCE_SENDER_AGENT_ID,
         replica,
+        session_manager::ConnectionCommand,
         session_manager::TerminateSession,
-        session_manager::{ConnectionCommand, DeleteSession},
         state::State,
         ws::{
             event::{Event, Label},
@@ -54,7 +56,7 @@ pub async fn handler<S: State>(
 async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state: S) {
     let (mut sender, mut receiver) = socket.split();
 
-    // Close connection if there is no messages for some time
+    // Close connection if there is no authn message for some time
     let authn_timeout = timeout(
         state.config().websocket.authentication_timeout,
         receiver.next(),
@@ -155,11 +157,12 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
     loop {
         tokio::select! {
             msg = nats_rx.next() => {
+                info!("got new event from nats");
                 let msg = match msg {
                     Some(Ok(msg)) => msg,
                     _ => {
                         warn!("nats stream is over");
-                        continue;
+                        break;
                     },
                 };
 
@@ -188,10 +191,11 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
             }
             // Get Pong/Close messages from client
             result = receiver.next() => {
+                info!("got new message from socket");
                 let result = match result {
                     Some(result) => result,
                     None => {
-                        info!("Connection to agent is aborted");
+                        warn!("Connection to agent is aborted");
                         break;
                     },
                 };
@@ -223,6 +227,7 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
             }
             // Ping authenticated clients with interval
             _ = ping_interval.tick() => {
+                info!("going to send ping");
                 if sender.send(Message::Ping(Vec::new())).await.is_err() {
                     warn!("An agent disconnected (ping not sent)");
                     break;
@@ -233,6 +238,7 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
             }
             // Close connection if pong exceeded timeout
             _ = pong_expiration_interval.tick() => {
+                info!("ping expiration");
                 if ping_sent {
                     warn!("Connection is closed (pong timeout exceeded)");
                     close_conn_with_msg(sender, Response::from(UnrecoverableSessionError::PongTimedOut)).await;
@@ -240,14 +246,15 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
                 }
             }
             // Close connections
-            cmd = &mut close_rx => {
+            cmd = close_rx.recv() => {
                 if connect_terminating {
+                    info!("got some cmd, ignoring");
                     continue;
                 }
 
                 let cmd = match cmd {
-                    Ok(cmd) => cmd,
-                    Err(_) => {
+                    Some(cmd) => cmd,
+                    None => {
                         warn!("cmd channel is closed, leaving...");
                         break;
                     }
@@ -257,24 +264,11 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
                     ConnectionCommand::Close => {
                         close_conn_with_msg(sender, Response::from(UnrecoverableSessionError::Replaced)).await;
                     }
-                    ConnectionCommand::CloseAndDelete(resp) => {
-                        close_conn_with_msg(sender, Response::from(UnrecoverableSessionError::Replaced)).await;
-
-                        match history_manager::move_single_session(state.clone(), session_id).await {
-                            Ok(_) => {
-                                resp.send(DeleteSession::Success).ok();
-                            }
-                            Err(e) => {
-                                error!(error = %e, "Failed to move session to history");
-                                send_to_sentry(e);
-                                resp.send(DeleteSession::Failure).ok();
-                            }
-                        }
-                    }
                     ConnectionCommand::Terminate => {
                         connect_terminating = true;
                         let msg = serialize_to_json(&Response::from(RecoverableSessionError::Terminated));
                         sender.send(Message::Text(msg)).await.ok();
+                        info!("terminating, notification sent");
 
                         continue;
                     }
@@ -287,11 +281,13 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
             }
         }
     }
+    info!("broke out of loop");
 
     state.metrics().ws_connection_total().dec();
 
     // Skip next steps if the connection is terminating
     if connect_terminating {
+        info!("closing handler earlier since we're terminating");
         return;
     }
 
@@ -420,7 +416,8 @@ async fn create_agent_session<S: State>(
                 })?;
 
             match replica::close_connection(state.clone(), replica_ip.ip(), session_key).await {
-                Ok(DeleteResponse::DeleteSuccess) => {
+                Ok(DeleteResponse::DeleteSuccess)
+                | Ok(DeleteResponse::DeleteFailure(Reason::NotFound)) => {
                     match agent_session::InsertQuery::new(
                         agent_id,
                         classroom_id,

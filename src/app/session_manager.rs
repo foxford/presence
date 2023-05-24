@@ -5,7 +5,7 @@ use tokio::{
     task::JoinHandle,
 };
 
-type SessionValue = (SessionId, oneshot::Sender<ConnectionCommand>);
+type SessionValue = (SessionId, mpsc::Sender<ConnectionCommand>);
 
 #[derive(Debug)]
 pub enum SessionCommand {
@@ -19,7 +19,6 @@ pub enum SessionCommand {
 #[derive(Debug)]
 pub enum ConnectionCommand {
     Close,
-    CloseAndDelete(oneshot::Sender<DeleteSession>),
     Terminate,
 }
 
@@ -31,8 +30,7 @@ pub enum TerminateSession {
 
 #[derive(Debug)]
 pub enum DeleteSession {
-    Success,
-    Failure,
+    Success(SessionId),
     NotFound,
 }
 
@@ -56,9 +54,8 @@ pub fn run(
                         SessionCommand::Terminate(session_key, resp) => {
                             match sessions.remove(&session_key) {
                                 Some((session_id, cmd)) => {
-                                    if cmd.send(ConnectionCommand::Close).is_ok() {
-                                        resp.send(TerminateSession::Found(session_id)).ok();
-                                    }
+                                    resp.send(TerminateSession::Found(session_id)).ok();
+                                    cmd.send(ConnectionCommand::Close).await.ok();
                                 }
                                 None => {
                                     resp.send(TerminateSession::NotFound).ok();
@@ -68,8 +65,9 @@ pub fn run(
                         // Closes connections and removes them from DB
                         SessionCommand::Delete(session_key, resp) => {
                             match sessions.remove(&session_key) {
-                                Some((_, cmd)) => {
-                                    cmd.send(ConnectionCommand::CloseAndDelete(resp)).ok();
+                                Some((session_id, cmd)) => {
+                                    cmd.send(ConnectionCommand::Close).await.ok();
+                                    resp.send(DeleteSession::Success(session_id)).ok();
                                 }
                                 None => {
                                     resp.send(DeleteSession::NotFound).ok();
@@ -81,7 +79,7 @@ pub fn run(
                 // Graceful shutdown
                 _ = shutdown_rx.changed() => {
                     for (_, (_, cmd)) in sessions {
-                        cmd.send(ConnectionCommand::Terminate).ok();
+                        cmd.send(ConnectionCommand::Terminate).await.ok();
                     }
                     break;
                 }

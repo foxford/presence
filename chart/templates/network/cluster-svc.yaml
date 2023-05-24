@@ -23,5 +23,11 @@ spec:
       targetPort: 8888
       protocol: TCP
     {{- end }}
+    {{- if .Values.clusterService.ports.internal }}
+    - name: internal
+      port: {{ .Values.clusterService.ports.internal }}
+      targetPort: 8081
+      protocol: TCP
+    {{- end }}
   selector:
     {{- include "presence.selectorLabels" . | nindent 4 }}

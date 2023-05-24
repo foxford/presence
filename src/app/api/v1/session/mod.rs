@@ -2,6 +2,7 @@ use crate::{
     app::{
         api::AppResult,
         error::{Error, ErrorExt, ErrorKind},
+        history_manager,
         session_manager::DeleteSession,
         state::State,
     },
@@ -54,17 +55,26 @@ pub async fn delete<S: State>(
 
 async fn do_delete<S: State>(state: S, payload: DeletePayload) -> AppResult {
     let (status, resp) = match state.delete_session(payload.session_key).await {
-        Ok(DeleteSession::Success) => return Ok(Json(Response::DeleteSuccess).into_response()),
-        Ok(DeleteSession::Failure) => (
-            StatusCode::UNPROCESSABLE_ENTITY,
-            Response::DeleteFailure(Reason::FailedToDelete),
-        ),
+        Ok(DeleteSession::Success(session_id)) => {
+            match history_manager::move_single_session(state.clone(), session_id).await {
+                Ok(_) => {
+                    return Ok(Json(Response::DeleteSuccess).into_response());
+                }
+                Err(e) => {
+                    error!(error = %e, "Failed to move session to history");
+                    (
+                        StatusCode::UNPROCESSABLE_ENTITY,
+                        Response::DeleteFailure(Reason::FailedToDelete),
+                    )
+                }
+            }
+        }
         Ok(DeleteSession::NotFound) => (
             StatusCode::NOT_FOUND,
             Response::DeleteFailure(Reason::NotFound),
         ),
         Err(e) => {
-            error!(error = %e, "Failed to receive response from another replica");
+            error!(error = %e, "Failed to delete session");
             Error::new(ErrorKind::ReceivingResponseFailed, e).notify_sentry();
 
             (
