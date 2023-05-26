@@ -15,7 +15,7 @@ pub struct Config {
     pub websocket: WebSocketConfig,
     pub authz: Authz,
     pub svc_audience: String,
-    pub nats: Option<NatsConfig>,
+    pub nats: Option<svc_nats_client::Config>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -28,11 +28,6 @@ pub struct WebSocketConfig {
     pub authentication_timeout: Duration,
     #[serde(with = "humantime_serde")]
     pub wait_before_close_connection: Duration,
-}
-
-#[derive(Clone, Debug, Deserialize)]
-pub struct NatsConfig {
-    pub url: String,
 }
 
 pub fn load() -> Result<Config, config::ConfigError> {

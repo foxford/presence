@@ -203,10 +203,9 @@ mod tests {
                 .id;
 
                 let past = OffsetDateTime::now_utc() - Duration::from_secs(120 * 60);
-                let session_id: SessionId = Uuid::new_v4().into();
 
                 let session = agent_session::AgentSession {
-                    id: session_id,
+                    id: 1.into(),
                     agent_id: agent_1.agent_id().to_owned(),
                     classroom_id: classroom_id_1,
                     replica_id,

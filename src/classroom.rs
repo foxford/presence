@@ -24,3 +24,9 @@ impl From<Uuid> for ClassroomId {
         Self(value)
     }
 }
+
+impl From<ClassroomId> for Uuid {
+    fn from(value: ClassroomId) -> Self {
+        value.0
+    }
+}

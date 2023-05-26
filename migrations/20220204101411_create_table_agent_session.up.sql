@@ -1,6 +1,6 @@
 CREATE TABLE IF NOT EXISTS agent_session
 (
-    id           uuid    DEFAULT gen_random_uuid() NOT NULL PRIMARY KEY,
+    id           bigserial                         NOT NULL PRIMARY KEY,
     agent_id     agent_id                          NOT NULL,
     classroom_id uuid                              NOT NULL,
     replica_id   text                              NOT NULL,

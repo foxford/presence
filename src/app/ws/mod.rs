@@ -7,7 +7,6 @@ use svc_error::{extension::sentry, Error as SvcError};
 
 pub use handler::handler;
 
-pub mod event;
 mod handler;
 
 #[derive(Deserialize)]

@@ -24,9 +24,6 @@ app:
     authentication_timeout: 5s
     wait_before_close_connection: 10s
 
-  nats:
-    url: nats://nats-back-front-cluster:4222
-
 migrations:
   image:
     repository: cr.yandex/crp1of6bddata8ain3q5/presence-migration
@@ -56,6 +53,8 @@ clusterService:
     http: 8080
     metrics: 8888
     internal: 8081
+
+nats: {}
 
 tls:
   secretName: tls-certificates

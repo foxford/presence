@@ -1,18 +1,24 @@
+use serde::Serialize;
 use sqlx::postgres::PgTypeInfo;
-use uuid::Uuid;
 
-#[derive(Debug, sqlx::Type, Clone, Copy)]
+#[derive(Debug, sqlx::Type, Clone, Copy, Hash, Eq, PartialEq, Serialize)]
 #[sqlx(transparent)]
-pub struct SessionId(Uuid);
+pub struct SessionId(i64);
 
 impl sqlx::postgres::PgHasArrayType for SessionId {
     fn array_type_info() -> PgTypeInfo {
-        <Uuid as sqlx::postgres::PgHasArrayType>::array_type_info()
+        <i64 as sqlx::postgres::PgHasArrayType>::array_type_info()
     }
 }
 
-impl From<Uuid> for SessionId {
-    fn from(value: Uuid) -> Self {
+impl From<i64> for SessionId {
+    fn from(value: i64) -> Self {
         Self(value)
+    }
+}
+
+impl From<SessionId> for i64 {
+    fn from(value: SessionId) -> Self {
+        value.0
     }
 }

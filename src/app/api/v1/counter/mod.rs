@@ -14,7 +14,7 @@ use axum::{extract::Extension, response::IntoResponse, Json};
 use serde_derive::Deserialize;
 use svc_agent::AgentId;
 use svc_authn::Authenticable;
-use svc_utils::extractors::AuthnExtractor;
+use svc_utils::extractors::AgentIdExtractor;
 
 #[derive(Deserialize)]
 pub struct CounterPayload {
@@ -23,7 +23,7 @@ pub struct CounterPayload {
 
 pub async fn count_agents<S: State>(
     Extension(state): Extension<S>,
-    AuthnExtractor(agent_id): AuthnExtractor,
+    AgentIdExtractor(agent_id): AgentIdExtractor,
     Json(payload): Json<CounterPayload>,
 ) -> AppResult {
     do_count_agents(state, agent_id, payload).await

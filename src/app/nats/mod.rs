@@ -1,28 +1,28 @@
-use crate::{app::ws::event::Event, classroom::ClassroomId, session::SessionKey};
+use crate::session::SessionId;
+use crate::{classroom::ClassroomId, session::SessionKey};
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use crossbeam_channel::{unbounded, Receiver};
-use nats::{
-    jetstream::{JetStream, SubscribeOptions},
-    HeaderMap, Message,
-};
 use std::{
     collections::HashMap,
-    io, thread,
     time::{Duration, Instant},
 };
+use svc_events::EventV1 as Event;
+use svc_nats_client::{AckPolicy, DeliverPolicy, EventId, Message, NatsClient as AsyncNatsClient};
 use tokio::{
     sync::{broadcast, mpsc, oneshot},
     time::{interval, Duration as TokioDuration, Interval, MissedTickBehavior},
 };
+use tokio_stream::StreamExt;
 use tracing::{error, info, warn};
 
-pub const PRESENCE_SENDER_AGENT_ID: &str = "presence-sender-agent-id";
+const SUBJECT_PREFIX: &str = "classroom";
+const ENTITY_TYPE: &str = "agent";
 
 #[derive(Debug)]
 struct Subscribe {
     classroom_id: ClassroomId,
-    resp_chan: oneshot::Sender<io::Result<broadcast::Receiver<Message>>>,
+    resp_chan: oneshot::Sender<Result<broadcast::Receiver<Message>>>,
 }
 
 const CLEANUP_TIMEOUT: Duration = Duration::from_secs(600);
@@ -39,36 +39,33 @@ enum Cmd {
 pub struct Client {
     tx: mpsc::UnboundedSender<Subscribe>,
     shutdown_tx: mpsc::Sender<oneshot::Sender<()>>,
-    jetstream: JetStream,
+    inner: svc_nats_client::Client,
 }
 
 #[async_trait]
 pub trait NatsClient: Send + Sync {
-    async fn subscribe(&self, _: ClassroomId) -> Result<broadcast::Receiver<Message>>;
-    fn publish_event(&self, _: SessionKey, _: Event) -> Result<()> {
-        Ok(())
-    }
+    async fn subscribe(&self, classroom_id: ClassroomId) -> Result<broadcast::Receiver<Message>>;
+    async fn publish_event(
+        &self,
+        session_key: SessionKey,
+        session_id: SessionId,
+        event: Event,
+    ) -> Result<()>;
 }
 
 impl Client {
-    pub fn new(nats_url: &str) -> Result<Self> {
+    pub async fn new(cfg: svc_nats_client::Config) -> Result<Self> {
         let (tx, mut rx) = mpsc::unbounded_channel::<Subscribe>();
         let (shutdown_tx, mut shutdown_rx) = mpsc::channel::<oneshot::Sender<()>>(1);
 
-        let connection = nats::Options::with_credentials("nats.creds")
-            .error_callback(|e| {
-                error!(error = ?e, "Nats server error");
-            })
-            .connect(nats_url)?;
+        let nats_client = svc_nats_client::Client::new(cfg).await?;
+        info!("Connected to NATS");
 
-        info!("Connected to nats");
-        let jetstream = nats::jetstream::new(connection);
-
-        let js = jetstream.clone();
-        tokio::task::spawn(async move {
+        let client = nats_client.clone();
+        tokio::spawn(async move {
             let (inner_tx, inner_rx) = unbounded();
 
-            let join_handle = thread::spawn(move || nats_loop(&js, inner_rx));
+            let join_handle = tokio::spawn(nats_loop(client, inner_rx));
 
             let mut cleanup_interval = cleanup_interval(CLEANUP_PERIOD);
 
@@ -78,7 +75,7 @@ impl Client {
                         info!("Nats client received shutdown");
 
                         let _ = inner_tx.try_send(Cmd::Shutdown);
-                        let r = tokio::task::spawn_blocking(move || join_handle.join()).await;
+                        let r = join_handle.await;
                         if let Err(e) = r {
                             warn!(error = ?e, "Failed to shutdown nats client thread properly");
                         }
@@ -103,7 +100,7 @@ impl Client {
         Ok(Self {
             tx,
             shutdown_tx,
-            jetstream,
+            inner: nats_client,
         })
     }
 
@@ -133,20 +130,34 @@ impl NatsClient for Client {
             .context("Subscription failed")
     }
 
-    fn publish_event(&self, session_key: SessionKey, event: Event) -> Result<()> {
-        let data = serde_json::to_string(&event)?;
-        let topic = mk_topic(session_key.classroom_id, "presence");
-        let mut headers = HeaderMap::new();
-        headers.insert(PRESENCE_SENDER_AGENT_ID, session_key.agent_id.to_string());
+    async fn publish_event(
+        &self,
+        session_key: SessionKey,
+        session_id: SessionId,
+        event: Event,
+    ) -> Result<()> {
+        let subject = svc_nats_client::Subject::new(
+            SUBJECT_PREFIX.to_string(),
+            session_key.classroom_id.into(),
+            ENTITY_TYPE.to_string(),
+        );
 
-        let msg = Message::new(&topic, None, data, Some(headers));
-        self.jetstream.publish_message(&msg)?;
+        let event = svc_events::Event::from(event);
+        let payload = serde_json::to_vec(&event)?;
+
+        let event_id = EventId::from((ENTITY_TYPE.to_string(), session_id.into()));
+
+        let event =
+            svc_nats_client::event::Builder::new(subject, payload, event_id, session_key.agent_id)
+                .build();
+
+        self.inner.publish(&event).await?;
 
         Ok(())
     }
 }
 
-fn nats_loop(js: &JetStream, rx: Receiver<Cmd>) {
+async fn nats_loop(client: svc_nats_client::Client, rx: Receiver<Cmd>) {
     let mut subscribers = Subscriptions::new();
 
     while let Ok(cmd) = rx.recv() {
@@ -167,9 +178,8 @@ fn nats_loop(js: &JetStream, rx: Receiver<Cmd>) {
                         info!("Sending existing sub tx");
                         resp_chan.send(Ok(rx))
                     }
-                    None => {
-                        resp_chan.send(add_new_subscription(js, &mut subscribers, classroom_id))
-                    }
+                    None => resp_chan
+                        .send(add_new_subscription(&client, &mut subscribers, classroom_id).await),
                 };
 
                 if resp_result.is_err() {
@@ -185,34 +195,29 @@ fn nats_loop(js: &JetStream, rx: Receiver<Cmd>) {
     }
 }
 
-fn mk_topic(classroom_id: ClassroomId, tail: &str) -> String {
-    format!("classroom.{classroom_id}.{tail}")
-}
-
-fn add_new_subscription(
-    js: &JetStream,
+async fn add_new_subscription(
+    client: &svc_nats_client::Client,
     subscribers: &mut Subscriptions,
     classroom_id: ClassroomId,
-) -> io::Result<broadcast::Receiver<Message>> {
-    let topic = mk_topic(classroom_id, "*");
-    let options = SubscribeOptions::bind_stream("classroom-out".into())
-        .deliver_new()
-        .ack_none()
-        .replay_instant();
+) -> Result<broadcast::Receiver<Message>> {
+    let subject = svc_nats_client::Subject::new(
+        SUBJECT_PREFIX.to_string(),
+        classroom_id.into(),
+        "*".to_string(),
+    );
 
-    info!(%topic, "Subscribing to jetstream");
+    info!(%subject, "Subscribing to JetStream");
 
-    let subscription = js.subscribe_with_options(&topic, &options)?;
-
-    info!(%topic, "Subscribed to jetstream");
+    let mut messages = client
+        .subscribe_ephemeral(subject, DeliverPolicy::New, AckPolicy::None)
+        .await?;
 
     let (tx, rx) = broadcast::channel(50);
-
     let tx_ = tx.clone();
 
-    std::thread::spawn(move || {
-        for message in subscription.iter() {
-            if let Err(_e) = tx_.send(message) {
+    tokio::spawn(async move {
+        while let Some(Ok(message)) = messages.next().await {
+            if tx_.send(message).is_err() {
                 error!(%classroom_id, "Failed to send message from nats subscription to receiver");
                 return;
             }
@@ -260,7 +265,7 @@ impl Subscriptions {
 }
 
 struct Subscription {
-    tx: broadcast::Sender<nats::Message>,
+    tx: broadcast::Sender<Message>,
     created_at: Instant,
 }
 
