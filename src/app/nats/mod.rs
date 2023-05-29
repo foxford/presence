@@ -1,10 +1,10 @@
 use crate::session::SessionId;
 use crate::{classroom::ClassroomId, session::SessionKey};
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
-use crossbeam_channel::{unbounded, Receiver};
 use std::{
     collections::HashMap,
+    sync::Arc,
     time::{Duration, Instant},
 };
 use svc_events::EventV1 as Event;
@@ -63,7 +63,7 @@ impl Client {
 
         let client = nats_client.clone();
         tokio::spawn(async move {
-            let (inner_tx, inner_rx) = unbounded();
+            let (inner_tx, inner_rx) = mpsc::unbounded_channel();
 
             let join_handle = tokio::spawn(nats_loop(client, inner_rx));
 
@@ -74,7 +74,7 @@ impl Client {
                     Some(wait_tx) = shutdown_rx.recv() => {
                         info!("Nats client received shutdown");
 
-                        let _ = inner_tx.try_send(Cmd::Shutdown);
+                        let _ = inner_tx.send(Cmd::Shutdown);
                         let r = join_handle.await;
                         if let Err(e) = r {
                             warn!(error = ?e, "Failed to shutdown nats client thread properly");
@@ -88,10 +88,10 @@ impl Client {
                         let classroom_id = sub.classroom_id;
                         info!(%classroom_id, "Nats client received subscribe");
 
-                        let _ = inner_tx.try_send(Cmd::Subscribe(sub));
+                        let _ = inner_tx.send(Cmd::Subscribe(sub));
                     }
                     _ = cleanup_interval.tick() => {
-                        let _ = inner_tx.try_send(Cmd::Cleanup);
+                        let _ = inner_tx.send(Cmd::Cleanup);
                     }
                 }
             }
@@ -149,6 +149,8 @@ impl NatsClient for Client {
 
         let event =
             svc_nats_client::event::Builder::new(subject, payload, event_id, session_key.agent_id)
+                .internal(false)
+                .deduplication(false)
                 .build();
 
         self.inner.publish(&event).await?;
@@ -157,10 +159,10 @@ impl NatsClient for Client {
     }
 }
 
-async fn nats_loop(client: svc_nats_client::Client, rx: Receiver<Cmd>) {
+async fn nats_loop(client: svc_nats_client::Client, mut rx: mpsc::UnboundedReceiver<Cmd>) {
     let mut subscribers = Subscriptions::new();
 
-    while let Ok(cmd) = rx.recv() {
+    while let Some(cmd) = rx.recv().await {
         match cmd {
             Cmd::Subscribe(Subscribe {
                 classroom_id,
@@ -209,8 +211,20 @@ async fn add_new_subscription(
     info!(%subject, "Subscribing to JetStream");
 
     let mut messages = client
-        .subscribe_ephemeral(subject, DeliverPolicy::New, AckPolicy::None)
-        .await?;
+        .subscribe_ephemeral(subject.clone(), DeliverPolicy::New, AckPolicy::None)
+        .await
+        .map_err(|err| {
+            error!(%classroom_id, %err, "failed to create an ephemeral subscription");
+
+            let error = anyhow!("failed to create an ephemeral subscription, error: {}", err);
+            if let Err(err) = svc_error::extension::sentry::send(Arc::new(error)) {
+                error!(%err, "failed to send error to sentry");
+            }
+
+            err
+        })?;
+
+    info!(%subject, "Subscribed to JetStream");
 
     let (tx, rx) = broadcast::channel(50);
     let tx_ = tx.clone();

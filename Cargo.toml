@@ -9,7 +9,6 @@ async-trait = "0.1"
 axum = { version = "0.6", features = ["ws"] }
 chrono = { version = "0.4" }
 config = { version = "0.13", default-features = false, features = ["toml"] }
-crossbeam-channel = "0.5"
 futures-util = "0.3"
 http = "0.2"
 humantime-serde = "1.0"

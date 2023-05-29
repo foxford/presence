@@ -1854,7 +1854,6 @@ dependencies = [
  "axum",
  "chrono",
  "config",
- "crossbeam-channel",
  "dotenv",
  "futures-util",
  "http",

@@ -31,6 +31,7 @@ use axum::{
 };
 use futures_util::{future::Either, stream::SplitSink, SinkExt, StreamExt};
 use serde::Serialize;
+use serde_json::json;
 use sqlx::types::time::OffsetDateTime;
 use std::sync::Arc;
 use svc_agent::AgentId;
@@ -79,6 +80,25 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
 
                     let nats_rx = match state.nats_client() {
                         Some(nats_client) => {
+                            // Send agent.enter others
+                            let event = AgentEvent::Enter {
+                                agent_id: session_key.clone().agent_id,
+                            };
+                            let event = Event::from(event);
+
+                            if let Err(e) = nats_client
+                                .publish_event(session_key.clone(), session_id, event)
+                                .await
+                            {
+                                error!(error = %e, "Failed to send agent.enter notification");
+                                close_conn_with_msg(
+                                    sender,
+                                    Response::from(UnrecoverableSessionError::InternalServerError),
+                                )
+                                .await;
+                                return;
+                            }
+
                             match nats_client
                                 .subscribe(session_key.clone().classroom_id)
                                 .await
@@ -93,28 +113,6 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
                         }
                         None => Either::Right(tokio_stream::pending()),
                     };
-
-                    if let Some(nats_client) = state.nats_client() {
-                        // Send agent.enter others
-                        let event = AgentEvent::Enter {
-                            id: session_id.into(),
-                            agent_id: session_key.clone().agent_id,
-                        };
-                        let event = Event::from(event);
-
-                        if let Err(e) = nats_client
-                            .publish_event(session_key.clone(), session_id, event)
-                            .await
-                        {
-                            error!(error = %e, "Failed to send agent.enter notification");
-                            close_conn_with_msg(
-                                sender,
-                                Response::from(UnrecoverableSessionError::InternalServerError),
-                            )
-                            .await;
-                            return;
-                        }
-                    }
 
                     info!("Successful authentication, session_key: {}", &session_key);
                     let _ = sender.send(Message::Text(m)).await;
@@ -182,6 +180,11 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
                     }
                 };
 
+                // Don't send internal messages
+                if headers.is_internal() {
+                    continue;
+                }
+
                 // Don't send events to yourself
                 if session_key.agent_id == headers.sender_id().clone() {
                     continue;
@@ -195,16 +198,30 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
                     }
                 }
 
-                match String::from_utf8(msg.payload.to_vec()) {
+                let payload = match serde_json::from_slice::<serde_json::Value>(&msg.payload) {
+                    Ok(json) => json,
+                    Err(error) => {
+                        error!(%error, "failed to deserialize nats payload");
+                        send_to_sentry(error.into());
+                        continue;
+                    }
+                };
+
+                let envelope = json!({
+                    "id": headers.event_id(),
+                    "payload": payload
+                });
+
+                match serde_json::to_string(&envelope) {
                     Ok(s) => {
-                        if let Err(e) = sender.send(Message::Text(s)).await {
-                            error!(error = ?e, "Failed to send notification");
-                            send_to_sentry(e.into());
+                        if let Err(err) = sender.send(Message::Text(s)).await {
+                            error!(%err, "failed to send notification");
+                            send_to_sentry(err.into());
                         }
-                    },
-                    Err(e)=> {
-                        error!(error = ?e, "Conversion to str failed");
-                        send_to_sentry(e.into());
+                    }
+                    Err(err) => {
+                        error!(%err, "failed to serialize envelope to json");
+                        send_to_sentry(err.into());
                     }
                 }
             }
@@ -265,12 +282,7 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
                 }
             }
             // Close connections
-            cmd = close_rx.recv() => {
-                if connect_terminating {
-                    tracing::debug!("got some cmd, ignoring");
-                    continue;
-                }
-
+            cmd = close_rx.recv(), if !connect_terminating => {
                 let cmd = match cmd {
                     Some(cmd) => cmd,
                     None => {
@@ -312,7 +324,6 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
 
     if let Some(nats_client) = state.nats_client() {
         let event = AgentEvent::Leave {
-            id: session_id.into(),
             agent_id: session_key.clone().agent_id,
         };
         let event = Event::from(event);
