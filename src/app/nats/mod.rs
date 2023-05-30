@@ -1,5 +1,7 @@
-use crate::session::SessionId;
-use crate::{classroom::ClassroomId, session::SessionKey};
+use crate::{
+    classroom::ClassroomId,
+    session::{SessionId, SessionKey},
+};
 use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
 use std::{
