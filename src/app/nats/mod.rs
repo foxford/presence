@@ -182,8 +182,11 @@ async fn nats_loop(client: svc_nats_client::Client, mut rx: mpsc::UnboundedRecei
                         info!("Sending existing sub tx");
                         resp_chan.send(Ok(rx))
                     }
-                    None => resp_chan
-                        .send(add_new_subscription(&client, &mut subscribers, classroom_id).await),
+                    None => {
+                        let sub =
+                            add_new_subscription(&client, &mut subscribers, classroom_id).await;
+                        resp_chan.send(sub)
+                    }
                 };
 
                 if resp_result.is_err() {
