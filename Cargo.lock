@@ -1847,7 +1847,7 @@ dependencies = [
 
 [[package]]
 name = "presence"
-version = "0.1.3"
+version = "0.1.4"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2925,7 +2925,8 @@ dependencies = [
 [[package]]
 name = "svc-events"
 version = "0.4.0"
-source = "git+https://github.com/foxford/svc-events?branch=feature/ulms-2415/add-agent-events#8cac3bed89a855cc3ea6b48ba392160822f497ae"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6be67117fb6595477cb08bf1a9c16ba93e00b89c03421178ba0fb775a6c62848"
 dependencies = [
  "serde",
  "serde_json",
