@@ -7,13 +7,12 @@ use crate::{
         util::AudienceEstimator,
     },
     classroom::ClassroomId,
-    config::{Config, NatsConfig, WebSocketConfig},
+    config::{Config, WebSocketConfig},
     session::{SessionId, SessionKey},
     test_helpers::prelude::*,
 };
 use anyhow::Result;
 use async_trait::async_trait;
-use nats::Message;
 use sqlx::{pool::PoolConnection, Postgres};
 use std::{
     net::{IpAddr, Ipv4Addr, SocketAddr},
@@ -21,6 +20,8 @@ use std::{
 };
 use svc_authn::AccountId;
 use svc_authz::ClientMap as Authz;
+use svc_events::EventV1 as Event;
+use svc_nats_client::Message;
 use tokio::sync::{broadcast::Receiver, mpsc};
 use uuid::Uuid;
 
@@ -57,9 +58,7 @@ impl TestState {
             },
             authz: Default::default(),
             svc_audience: SVC_AUDIENCE.to_string(),
-            nats: Some(NatsConfig {
-                url: "localhost:1234".into(),
-            }),
+            nats: None,
         };
         let audience_estimator = AudienceEstimator::new(&config.authz);
         Self {
@@ -77,8 +76,16 @@ struct TestNatsClient;
 
 #[async_trait]
 impl NatsClient for TestNatsClient {
-    async fn subscribe(&self, _: ClassroomId) -> Result<Receiver<Message>> {
-        todo!()
+    async fn subscribe(&self, _classroom_id: ClassroomId) -> Result<Receiver<Message>> {
+        unimplemented!()
+    }
+    async fn publish_event(
+        &self,
+        _session_key: SessionKey,
+        _session_id: SessionId,
+        _event: Event,
+    ) -> Result<()> {
+        unimplemented!()
     }
 }
 

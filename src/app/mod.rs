@@ -49,7 +49,7 @@ pub async fn run(db: PgPool, authz_cache: Option<AuthzCache>) -> Result<()> {
     let nats_client = match &config.nats {
         Some(nats_cfg) => {
             info!("Connecting to NATS");
-            Some(nats::Client::new(&nats_cfg.url)?)
+            Some(nats::Client::new(nats_cfg.clone()).await?)
         }
         None => None,
     };
@@ -75,7 +75,6 @@ pub async fn run(db: PgPool, authz_cache: Option<AuthzCache>) -> Result<()> {
     let (shutdown_tx, shutdown_rx) = watch::channel(());
 
     // Keeps all active sessions on a replica
-    // let sessions = SessionMap::new();
     let session_manager = session_manager::run(cmd_rx, shutdown_rx.clone());
 
     let router = router::new(state.clone(), config.authn.clone());

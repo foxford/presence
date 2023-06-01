@@ -111,7 +111,10 @@ data:
     {{- println "" }}
     {{- end }}
 
-    {{- if not (eq "disable" .Values.app.nats.url) }}
+    {{- with .Values.nats }}
+    {{- println "" }}
     [nats]
-    url = {{ .Values.app.nats.url | quote }}
+    url = {{ .url | quote }}
+    creds = {{ .creds | quote }}
+    subscribe_ephemeral.stream = {{ .subscribe_ephemeral.stream | quote }}
     {{- end }}

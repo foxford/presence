@@ -19,7 +19,7 @@ use axum::{
 use serde::Deserialize;
 use svc_agent::AgentId;
 use svc_authn::Authenticable;
-use svc_utils::extractors::AuthnExtractor;
+use svc_utils::extractors::AgentIdExtractor;
 
 const MAX_LIMIT: usize = 100;
 
@@ -32,7 +32,7 @@ pub struct Payload {
 pub async fn list_agents<S: State>(
     Extension(state): Extension<S>,
     Path(classroom_id): Path<ClassroomId>,
-    AuthnExtractor(agent_id): AuthnExtractor,
+    AgentIdExtractor(agent_id): AgentIdExtractor,
     Query(payload): Query<Payload>,
 ) -> AppResult {
     do_list_agents(state, classroom_id, agent_id, payload).await
@@ -178,7 +178,8 @@ mod tests {
         let mut body = resp.into_body();
         let body = body.data().await.unwrap().expect("Failed to get body");
         let object = Agent {
-            id: agent.agent_id().to_owned(),
+            id: 1.into(),
+            agent_id: agent.agent_id().to_owned(),
         };
 
         let json = serde_json::to_string(&vec![object]).expect("Failed to serialize an agent");

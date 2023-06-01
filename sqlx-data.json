@@ -1,66 +1,12 @@
 {
   "db": "PostgreSQL",
-  "1475ac53bb002ec3c7db42824a5711d6bee3a6e288da8fd1adb5d3c749c37660": {
-    "describe": {
-      "columns": [
-        {
-          "name": "id: AgentId",
-          "ordinal": 0,
-          "type_info": {
-            "Custom": {
-              "kind": {
-                "Composite": [
-                  [
-                    "account_id",
-                    {
-                      "Custom": {
-                        "kind": {
-                          "Composite": [
-                            [
-                              "label",
-                              "Text"
-                            ],
-                            [
-                              "audience",
-                              "Text"
-                            ]
-                          ]
-                        },
-                        "name": "account_id"
-                      }
-                    }
-                  ],
-                  [
-                    "label",
-                    "Text"
-                  ]
-                ]
-              },
-              "name": "agent_id"
-            }
-          }
-        }
-      ],
-      "nullable": [
-        false
-      ],
-      "parameters": {
-        "Left": [
-          "Uuid",
-          "Int8",
-          "Int8"
-        ]
-      }
-    },
-    "query": "\n            SELECT\n                agent_id AS \"id: AgentId\"\n            FROM agent_session\n            WHERE\n                classroom_id = $1::uuid\n            LIMIT $2\n            OFFSET $3\n            "
-  },
   "2043663b62389d793acd3aee6e4e9765c18bda1ed16480bef9f8bdfe37b12cae": {
     "describe": {
       "columns": [],
       "nullable": [],
       "parameters": {
         "Left": [
-          "Uuid",
+          "Int8",
           "TstzRange"
         ]
       }
@@ -73,7 +19,7 @@
       "nullable": [],
       "parameters": {
         "Left": [
-          "UuidArray",
+          "Int8Array",
           "Uuid"
         ]
       }
@@ -112,7 +58,7 @@
         {
           "name": "id!: SessionId",
           "ordinal": 0,
-          "type_info": "Uuid"
+          "type_info": "Int8"
         },
         {
           "name": "lifetime!",
@@ -170,7 +116,7 @@
         {
           "name": "id: SessionId",
           "ordinal": 0,
-          "type_info": "Uuid"
+          "type_info": "Int8"
         }
       ],
       "nullable": [
@@ -190,7 +136,7 @@
       "nullable": [],
       "parameters": {
         "Left": [
-          "Uuid",
+          "Int8",
           {
             "Custom": {
               "kind": {
@@ -252,13 +198,73 @@
     },
     "query": "\n            SELECT replica.ip\n            FROM replica\n            JOIN agent_session\n                ON replica.id = agent_session.replica_id\n            WHERE agent_session.agent_id = $1\n                AND agent_session.classroom_id = $2\n            LIMIT 1\n            "
   },
+  "a44bd975c58a56fdfded5cda57d31505613220e739c5071a3c69ce71b272698a": {
+    "describe": {
+      "columns": [
+        {
+          "name": "id: SessionId",
+          "ordinal": 0,
+          "type_info": "Int8"
+        },
+        {
+          "name": "agent_id: AgentId",
+          "ordinal": 1,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Composite": [
+                  [
+                    "account_id",
+                    {
+                      "Custom": {
+                        "kind": {
+                          "Composite": [
+                            [
+                              "label",
+                              "Text"
+                            ],
+                            [
+                              "audience",
+                              "Text"
+                            ]
+                          ]
+                        },
+                        "name": "account_id"
+                      }
+                    }
+                  ],
+                  [
+                    "label",
+                    "Text"
+                  ]
+                ]
+              },
+              "name": "agent_id"
+            }
+          }
+        }
+      ],
+      "nullable": [
+        false,
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Uuid",
+          "Int8",
+          "Int8"
+        ]
+      }
+    },
+    "query": "\n            SELECT\n                id AS \"id: SessionId\",\n                agent_id AS \"agent_id: AgentId\"\n            FROM agent_session\n            WHERE\n                classroom_id = $1::uuid\n            LIMIT $2\n            OFFSET $3\n            "
+  },
   "ac48c91d82b0c301ee231d3a9e0d7adeff8367d1a6c92672307fa931780eb849": {
     "describe": {
       "columns": [
         {
           "name": "id: SessionId",
           "ordinal": 0,
-          "type_info": "Uuid"
+          "type_info": "Int8"
         },
         {
           "name": "agent_id: AgentId",
@@ -322,7 +328,7 @@
       ],
       "parameters": {
         "Left": [
-          "Uuid"
+          "Int8"
         ]
       }
     },
@@ -373,7 +379,7 @@
         {
           "name": "id: SessionId",
           "ordinal": 0,
-          "type_info": "Uuid"
+          "type_info": "Int8"
         },
         {
           "name": "agent_id: AgentId",

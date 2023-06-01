@@ -22,13 +22,18 @@ Response status: `200`
 
 Response Body:
 
-| Type          | Description             |
-|---------------|-------------------------|
-| array[string] | An array of Agent's ID. |
+| Type          | Description                                     |
+|---------------|-------------------------------------------------|
+| array[object] | An array of objects with SessionId and AgentId. |
 
 Example:
 ```json
-["web.Z2lkOi8vc3RvZWdlL1VzZXI6OlB1cGlsLzIyNDM1MTg=.testing01.usr.foxford.ru"]
+[
+    {
+        "id": 1,
+        "agent_id": "web.Z2lkOi8vc3RvZWdlL1VzZXI6OlB1cGlsLzIyNDM1MTg=.testing01.usr.foxford.ru"
+    }
+]
 ```
 ### Count online agents
 

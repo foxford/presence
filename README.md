@@ -41,7 +41,7 @@ cp docker/development/nats/nats.conf{.example,}
 4. Create a stream on Nats:
 
 ```shell
-$ nats stream add classrooms-reliable --creds=nats.creds --subjects='classrooms.>' --storage=memory --replicas=1 --retention=limits --discard=old
+$ nats stream add classroom-out --creds=nats.creds --subjects='classroom.>' --storage=memory --replicas=1 --retention=interest --discard=new
 # Next "Enter" for all questions 
 ```
 

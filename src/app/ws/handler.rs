@@ -4,13 +4,11 @@ use crate::{
         api::v1::session::Reason,
         history_manager,
         metrics::AuthzMeasure,
-        nats::PRESENCE_SENDER_AGENT_ID,
         replica,
         session_manager::ConnectionCommand,
         session_manager::TerminateSession,
         state::State,
         ws::{
-            event::{Event, Label},
             ConnectRequest, RecoverableSessionError, Request, Response, UnrecoverableSessionError,
         },
     },
@@ -33,14 +31,16 @@ use axum::{
 };
 use futures_util::{future::Either, stream::SplitSink, SinkExt, StreamExt};
 use serde::Serialize;
+use serde_json::json;
 use sqlx::types::time::OffsetDateTime;
-use std::{str::FromStr, sync::Arc};
+use std::sync::Arc;
 use svc_agent::AgentId;
 use svc_authn::{
     jose::ConfigMap, token::jws_compact::extract::decode_jws_compact_with_config, AccountId,
     Authenticable,
 };
 use svc_error::extension::sentry;
+use svc_events::{AgentEventV1 as AgentEvent, EventV1 as Event};
 use tokio::time::{interval, timeout, MissedTickBehavior};
 use tokio_stream::wrappers::BroadcastStream;
 use tracing::{error, info, warn};
@@ -80,6 +80,25 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
 
                     let nats_rx = match state.nats_client() {
                         Some(nats_client) => {
+                            // Send agent.enter others
+                            let event = AgentEvent::Enter {
+                                agent_id: session_key.clone().agent_id,
+                            };
+                            let event = Event::from(event);
+
+                            if let Err(e) = nats_client
+                                .publish_event(session_key.clone(), session_id, event)
+                                .await
+                            {
+                                error!(error = %e, "Failed to send agent.enter notification");
+                                close_conn_with_msg(
+                                    sender,
+                                    Response::from(UnrecoverableSessionError::InternalServerError),
+                                )
+                                .await;
+                                return;
+                            }
+
                             match nats_client
                                 .subscribe(session_key.clone().classroom_id)
                                 .await
@@ -94,20 +113,6 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
                         }
                         None => Either::Right(tokio_stream::pending()),
                     };
-
-                    if let Some(nats_client) = state.nats_client() {
-                        // Send agent.enter others
-                        let event = Event::new(Label::AgentEnter, session_key.clone().agent_id);
-                        if let Err(e) = nats_client.publish_event(session_key.clone(), event) {
-                            error!(error = %e, "Failed to send agent.enter notification");
-                            close_conn_with_msg(
-                                sender,
-                                Response::from(UnrecoverableSessionError::InternalServerError),
-                            )
-                            .await;
-                            return;
-                        }
-                    }
 
                     info!("Successful authentication, session_key: {}", &session_key);
                     let _ = sender.send(Message::Text(m)).await;
@@ -166,26 +171,57 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
                     },
                 };
 
-                if let Some(sender_id) = msg.headers.and_then(|h| {
-                    h.get(PRESENCE_SENDER_AGENT_ID)
-                        .and_then(|s| AgentId::from_str(s).ok())
-                }) {
-                    // Don't send events to yourself
-                    if session_key.agent_id == sender_id {
+                let headers = match svc_nats_client::Headers::try_from(msg.headers.clone().unwrap_or_default()) {
+                    Ok(headers) => headers,
+                    Err(err) => {
+                        error!(%err, "failed to parse nats headers");
+                        send_to_sentry(err.into());
+                        continue;
+                    }
+                };
+
+                // Don't send internal messages
+                if headers.is_internal() {
+                    continue;
+                }
+
+                // Don't send events to yourself
+                if session_key.agent_id == headers.sender_id().clone() {
+                    continue;
+                }
+
+                if let Some(receiver_id) = headers.receiver_id() {
+                    // If there is a receiver_id in the nats headers,
+                    // then we send a message only to this agent
+                    if session_key.agent_id != receiver_id.clone() {
                         continue;
                     }
                 }
 
-                match String::from_utf8(msg.data) {
+                let payload = match serde_json::from_slice::<serde_json::Value>(&msg.payload) {
+                    Ok(json) => json,
+                    Err(error) => {
+                        error!(%error, "failed to deserialize nats payload");
+                        send_to_sentry(error.into());
+                        continue;
+                    }
+                };
+
+                let envelope = json!({
+                    "id": headers.event_id(),
+                    "payload": payload
+                });
+
+                match serde_json::to_string(&envelope) {
                     Ok(s) => {
-                        if let Err(e) = sender.send(Message::Text(s)).await {
-                            error!(error = ?e, "Failed to send notification");
-                            send_to_sentry(e.into());
+                        if let Err(err) = sender.send(Message::Text(s)).await {
+                            error!(%err, "failed to send notification");
+                            send_to_sentry(err.into());
                         }
-                    },
-                    Err(e)=> {
-                        error!(error = ?e, "Conversion to str failed");
-                        send_to_sentry(e.into());
+                    }
+                    Err(err) => {
+                        error!(%err, "failed to serialize envelope to json");
+                        send_to_sentry(err.into());
                     }
                 }
             }
@@ -246,12 +282,7 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
                 }
             }
             // Close connections
-            cmd = close_rx.recv() => {
-                if connect_terminating {
-                    tracing::debug!("got some cmd, ignoring");
-                    continue;
-                }
-
+            cmd = close_rx.recv(), if !connect_terminating => {
                 let cmd = match cmd {
                     Some(cmd) => cmd,
                     None => {
@@ -292,8 +323,15 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
     }
 
     if let Some(nats_client) = state.nats_client() {
-        let event = Event::new(Label::AgentLeave, session_key.agent_id.clone());
-        if let Err(e) = nats_client.publish_event(session_key.clone(), event) {
+        let event = AgentEvent::Leave {
+            agent_id: session_key.clone().agent_id,
+        };
+        let event = Event::from(event);
+
+        if let Err(e) = nats_client
+            .publish_event(session_key.clone(), session_id, event)
+            .await
+        {
             error!(error = %e, "Failed to send agent.leave notification");
             send_to_sentry(e);
             return;
@@ -495,7 +533,7 @@ fn get_agent_id_from_token(
     let claims = data.claims;
 
     let account = AccountId::new(claims.subject(), claims.audience());
-    let agent_id = AgentId::new(&agent_label, account);
+    let agent_id = AgentId::new(agent_label, account);
 
     Ok(agent_id)
 }

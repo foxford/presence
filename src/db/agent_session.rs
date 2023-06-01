@@ -119,9 +119,9 @@ impl<'a> DeleteQuery<'a> {
 }
 
 #[derive(Serialize)]
-#[serde(transparent)]
 pub struct Agent {
-    pub id: AgentId,
+    pub id: SessionId,
+    pub agent_id: AgentId,
 }
 
 pub struct AgentList {
@@ -144,7 +144,8 @@ impl AgentList {
             Agent,
             r#"
             SELECT
-                agent_id AS "id: AgentId"
+                id AS "id: SessionId",
+                agent_id AS "agent_id: AgentId"
             FROM agent_session
             WHERE
                 classroom_id = $1::uuid
