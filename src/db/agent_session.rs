@@ -79,7 +79,7 @@ impl<'a> InsertQuery<'a> {
 
         match query.fetch_one(conn).await {
             Ok(agent_session) => InsertResult::Ok(agent_session),
-            Err(sqlx::Error::Database(err)) => {
+            Err(Error::Database(err)) => {
                 if let Some(constraint) = err.constraint() {
                     if constraint == "uniq_classroom_id_agent_id" {
                         return InsertResult::UniqIdsConstraintError;
@@ -232,6 +232,31 @@ impl GetQuery {
             &self.id as &SessionId
         )
         .fetch_one(conn)
+        .await
+    }
+}
+
+pub struct UpdateQuery {
+    id: SessionId,
+    replica_id: Uuid,
+}
+
+impl UpdateQuery {
+    pub fn new(id: SessionId, replica_id: Uuid) -> Self {
+        Self { id, replica_id }
+    }
+
+    pub async fn execute(&self, conn: &mut PgConnection) -> sqlx::Result<PgQueryResult> {
+        sqlx::query!(
+            r#"
+            UPDATE agent_session
+            SET replica_id = $2
+            WHERE id = $1
+            "#,
+            &self.id as &SessionId,
+            self.replica_id
+        )
+        .execute(conn)
         .await
     }
 }

@@ -1,7 +1,7 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgTypeInfo;
 
-#[derive(Debug, sqlx::Type, Clone, Copy, Hash, Eq, PartialEq, Serialize)]
+#[derive(Debug, sqlx::Type, Clone, Copy, Hash, Eq, PartialEq, Serialize, Deserialize)]
 #[sqlx(transparent)]
 pub struct SessionId(i64);
 

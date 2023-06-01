@@ -64,7 +64,7 @@ pub async fn run(db: PgPool, authz_cache: Option<AuthzCache>) -> Result<()> {
         Metrics::new(),
     );
 
-    // Move hanging sessions from last time to history
+    // Move hanging sessions from the last time to history
     history_manager::move_all_sessions(state.clone(), replica_id)
         .await
         .context("Failed to move all sessions to history")?;
@@ -75,7 +75,11 @@ pub async fn run(db: PgPool, authz_cache: Option<AuthzCache>) -> Result<()> {
     let (shutdown_tx, shutdown_rx) = watch::channel(());
 
     // Keeps all active sessions on a replica
-    let session_manager = session_manager::run(cmd_rx, shutdown_rx.clone());
+    let session_manager = session_manager::run(
+        cmd_rx,
+        shutdown_rx.clone(),
+        config.websocket.wait_before_close_connection,
+    );
 
     let router = router::new(state.clone(), config.authn.clone());
     let internal_router = router::new_internal(state.clone());
@@ -104,6 +108,9 @@ pub async fn run(db: PgPool, authz_cache: Option<AuthzCache>) -> Result<()> {
             .serve(internal_router.into_make_service())
             .with_graceful_shutdown(async move {
                 shutdown_server_rx.changed().await.ok();
+
+                // To process requests from another replica during a graceful shutdown
+                tokio::time::sleep(config.websocket.wait_before_close_connection).await;
             }),
     );
 
@@ -113,15 +120,6 @@ pub async fn run(db: PgPool, authz_cache: Option<AuthzCache>) -> Result<()> {
     let _ = signals.await;
     // Initiating graceful shutdown
     shutdown_tx.send(()).ok();
-
-    // Move hanging sessions to history
-    if let Err(e) = history_manager::move_all_sessions(state.clone(), replica_id).await {
-        report_error(
-            ErrorKind::MovingSessionToHistoryFailed,
-            "Failed to move all sessions to history",
-            e,
-        );
-    }
 
     // Make sure session manager, server, and others are stopped
     if let Err(e) = session_manager.await {
@@ -145,6 +143,17 @@ pub async fn run(db: PgPool, authz_cache: Option<AuthzCache>) -> Result<()> {
             ErrorKind::ShutdownFailed,
             "Failed to await internal server completion",
             e.into(),
+        );
+    }
+
+    // Move hanging sessions to history
+    // NOTE: This process should be started after the completion of the internal API
+    // Otherwise, presence won't send the `replaced` error to the agent
+    if let Err(e) = history_manager::move_all_sessions(state.clone(), replica_id).await {
+        report_error(
+            ErrorKind::MovingSessionToHistoryFailed,
+            "Failed to move all sessions to history",
+            e,
         );
     }
 

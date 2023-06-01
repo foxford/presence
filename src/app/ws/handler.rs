@@ -1,15 +1,14 @@
 use crate::{
     app::{
-        self,
-        api::v1::session::Reason,
-        history_manager,
+        self, history_manager,
         metrics::AuthzMeasure,
         replica,
         session_manager::ConnectionCommand,
         session_manager::TerminateSession,
         state::State,
         ws::{
-            ConnectRequest, RecoverableSessionError, Request, Response, UnrecoverableSessionError,
+            ConnectRequest, RecoverableSessionError, Request, Response, Session, SessionKind,
+            UnrecoverableSessionError,
         },
     },
     authz::AuthzObject,
@@ -64,15 +63,15 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
     .await;
 
     // Authentication
-    let (session_id, session_key, mut nats_rx, mut close_rx) = match authn_timeout {
+    let (session, mut nats_rx, mut close_rx) = match authn_timeout {
         Ok(Some(result)) => match result {
             Ok(msg) => match handle_authn_message(msg, authn, state.clone()).await {
-                Ok((m, (session_id, session_key))) => {
+                Ok((m, session)) => {
                     // To close old connections from the same agents
-                    let close_rx = match state.register_session(session_key.clone(), session_id) {
+                    let close_rx = match state.register_session(session.key.clone(), session.id) {
                         Ok(rx) => rx,
                         Err(e) => {
-                            error!(error = %e, "Failed to register session_key: {}", session_key);
+                            error!(error = %e, "Failed to register session_key: {}", session.key);
                             close_conn_with_msg(sender, Response::from(e)).await;
                             return;
                         }
@@ -80,27 +79,31 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
 
                     let nats_rx = match state.nats_client() {
                         Some(nats_client) => {
-                            // Send agent.enter others
-                            let event = AgentEvent::Enter {
-                                agent_id: session_key.clone().agent_id,
-                            };
-                            let event = Event::from(event);
+                            // Send `agent.enter` to others only if the session is new and not replaced
+                            if let SessionKind::New = session.kind {
+                                let event = AgentEvent::Enter {
+                                    agent_id: session.key.clone().agent_id,
+                                };
+                                let event = Event::from(event);
 
-                            if let Err(e) = nats_client
-                                .publish_event(session_key.clone(), session_id, event)
-                                .await
-                            {
-                                error!(error = %e, "Failed to send agent.enter notification");
-                                close_conn_with_msg(
-                                    sender,
-                                    Response::from(UnrecoverableSessionError::InternalServerError),
-                                )
-                                .await;
-                                return;
+                                if let Err(e) = nats_client
+                                    .publish_event(session.key.clone(), session.id, event)
+                                    .await
+                                {
+                                    error!(error = %e, "Failed to send agent.enter notification");
+                                    close_conn_with_msg(
+                                        sender,
+                                        Response::from(
+                                            UnrecoverableSessionError::InternalServerError,
+                                        ),
+                                    )
+                                    .await;
+                                    return;
+                                }
                             }
 
                             match nats_client
-                                .subscribe(session_key.clone().classroom_id)
+                                .subscribe(session.key.clone().classroom_id)
                                 .await
                             {
                                 Ok(rx) => Either::Left(BroadcastStream::new(rx)),
@@ -114,11 +117,11 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
                         None => Either::Right(tokio_stream::pending()),
                     };
 
-                    info!("Successful authentication, session_key: {}", &session_key);
+                    info!("Successful authentication, session_key: {}", &session.key);
                     let _ = sender.send(Message::Text(m)).await;
                     state.metrics().ws_connection_success().inc();
 
-                    (session_id, session_key, nats_rx, close_rx)
+                    (session, nats_rx, close_rx)
                 }
                 Err(e) => {
                     error!(error = ?e, "Connection is closed (unsuccessful request)");
@@ -186,14 +189,14 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
                 }
 
                 // Don't send events to yourself
-                if session_key.agent_id == headers.sender_id().clone() {
+                if session.key.agent_id == headers.sender_id().clone() {
                     continue;
                 }
 
                 if let Some(receiver_id) = headers.receiver_id() {
                     // If there is a receiver_id in the nats headers,
                     // then we send a message only to this agent
-                    if session_key.agent_id != receiver_id.clone() {
+                    if session.key.agent_id != receiver_id.clone() {
                         continue;
                     }
                 }
@@ -282,7 +285,7 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
                 }
             }
             // Close connections
-            cmd = close_rx.recv(), if !connect_terminating => {
+            cmd = close_rx.recv() => {
                 let cmd = match cmd {
                     Some(cmd) => cmd,
                     None => {
@@ -324,12 +327,12 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
 
     if let Some(nats_client) = state.nats_client() {
         let event = AgentEvent::Leave {
-            agent_id: session_key.clone().agent_id,
+            agent_id: session.key.clone().agent_id,
         };
         let event = Event::from(event);
 
         if let Err(e) = nats_client
-            .publish_event(session_key.clone(), session_id, event)
+            .publish_event(session.key.clone(), session.id, event)
             .await
         {
             error!(error = %e, "Failed to send agent.leave notification");
@@ -338,13 +341,13 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
         }
     }
 
-    if let Err(e) = state.terminate_session(session_key.clone()).await {
-        error!(error = %e, "Failed to terminate session_key: {}", session_key);
+    if let Err(e) = state.terminate_session(session.key.clone()).await {
+        error!(error = %e, "Failed to terminate session_key: {}", session.key);
         send_to_sentry(e);
         return;
     }
 
-    if let Err(e) = history_manager::move_single_session(state, session_id).await {
+    if let Err(e) = history_manager::move_single_session(state, session.id).await {
         error!(error = %e, "Failed to move session to history");
         send_to_sentry(e);
     }
@@ -367,7 +370,7 @@ async fn handle_authn_message<S: State>(
     message: Message,
     authn: Arc<ConfigMap>,
     state: S,
-) -> Result<(String, (SessionId, SessionKey)), UnrecoverableSessionError> {
+) -> Result<(String, Session), UnrecoverableSessionError> {
     let msg = match message {
         Message::Text(msg) => msg,
         _ => return Err(UnrecoverableSessionError::UnsupportedRequest),
@@ -386,11 +389,14 @@ async fn handle_authn_message<S: State>(
             })?;
 
             authorize_agent(state.clone(), &agent_id, &classroom_id).await?;
-            let session_id = create_agent_session(state, classroom_id, &agent_id).await?;
+
+            let (session_id, session_kind) =
+                create_agent_session(state, classroom_id, &agent_id).await?;
+            let session_key = SessionKey::new(agent_id, classroom_id);
 
             Ok((
                 serialize_to_json(&Response::ConnectSuccess),
-                (session_id, SessionKey::new(agent_id, classroom_id)),
+                Session::new(session_id, session_key, session_kind),
             ))
         }
         Err(e) => {
@@ -405,7 +411,7 @@ async fn create_agent_session<S: State>(
     state: S,
     classroom_id: ClassroomId,
     agent_id: &AgentId,
-) -> Result<SessionId, UnrecoverableSessionError> {
+) -> Result<(SessionId, SessionKind), UnrecoverableSessionError> {
     let mut conn = state.get_conn().await.map_err(|e| {
         error!(error = %e, "Failed to get db connection");
         send_to_sentry(e);
@@ -417,7 +423,7 @@ async fn create_agent_session<S: State>(
     // If the session is found, don't create a new session and return the previous id
     match state.terminate_session(session_key.clone()).await {
         Ok(TerminateSession::Found(session_id)) => {
-            return Ok(session_id);
+            return Ok((session_id, SessionKind::Replaced));
         }
         Err(e) => {
             error!(error = %e, "Failed to terminate session: {}", &session_key);
@@ -435,47 +441,36 @@ async fn create_agent_session<S: State>(
     );
 
     match insert_query.execute(&mut conn).await {
-        InsertResult::Ok(agent_session) => Ok(agent_session.id),
+        InsertResult::Ok(agent_session) => Ok((agent_session.id, SessionKind::New)),
         InsertResult::Error(e) => {
             error!(error = %e, "Failed to create an agent session");
             send_to_sentry(e.into());
             Err(UnrecoverableSessionError::InternalServerError)
         }
         InsertResult::UniqIdsConstraintError => {
+            // Attempt to close old session on another replica
             use app::api::v1::session::Response as DeleteResponse;
 
             let replica_ip = db::replica::GetIpQuery::new(session_key.clone())
                 .execute(&mut conn)
                 .await
                 .map_err(|e| {
-                    error!(error = %e, "Failed to get replica ip");
+                    error!(error = %e, %session_key, "Failed to get replica ip");
                     send_to_sentry(e.into());
                     UnrecoverableSessionError::InternalServerError
                 })?;
 
             match replica::close_connection(state.clone(), replica_ip.ip(), session_key).await {
-                Ok(DeleteResponse::DeleteSuccess)
-                | Ok(DeleteResponse::DeleteFailure(Reason::NotFound)) => {
-                    match agent_session::InsertQuery::new(
-                        agent_id,
-                        classroom_id,
-                        state.replica_id(),
-                        OffsetDateTime::now_utc(),
-                    )
-                    .execute(&mut conn)
-                    .await
+                Ok(DeleteResponse::DeleteSuccess(session_id)) => {
+                    let replica_id = state.replica_id();
+                    match agent_session::UpdateQuery::new(session_id, replica_id)
+                        .execute(&mut conn)
+                        .await
                     {
-                        InsertResult::Ok(session) => Ok(session.id),
-                        InsertResult::Error(e) => {
-                            error!(error = %e, "Failed to create new agent session");
-                            send_to_sentry(e.into());
-                            Err(UnrecoverableSessionError::InternalServerError)
-                        }
-                        InsertResult::UniqIdsConstraintError => {
-                            error!("Failed to create new agent session due to unique constraint");
-                            send_to_sentry(anyhow!(
-                                "Failed to create new agent session due to unique constraint"
-                            ));
+                        Ok(_) => Ok((session_id, SessionKind::Replaced)),
+                        Err(err) => {
+                            error!(error = %err, ?session_id, "failed to update replica_id for agent session");
+                            send_to_sentry(err.into());
                             Err(UnrecoverableSessionError::InternalServerError)
                         }
                     }
@@ -685,7 +680,7 @@ mod tests {
             );
             let state = TestState::new(db_pool, authz, replica_id);
 
-            let (resp, (_, session_key)) = handle_authn_message(msg, authn, state)
+            let (resp, session) = handle_authn_message(msg, authn, state)
                 .await
                 .expect("Failed to handle authentication message");
 
@@ -694,7 +689,7 @@ mod tests {
 
             assert_eq!(resp, success);
             assert_eq!(
-                session_key,
+                session.key,
                 SessionKey::new(agent.agent_id().to_owned(), classroom_id)
             );
         }

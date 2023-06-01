@@ -13,6 +13,19 @@
     },
     "query": "\n            UPDATE agent_session_history\n            SET lifetime = $2\n            WHERE id = $1\n            "
   },
+  "35296e4022e0570203137996b4397c0e90fb121a5743a7fc2ff955bf96953c6d": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Int8",
+          "Uuid"
+        ]
+      }
+    },
+    "query": "\n            UPDATE agent_session\n            SET replica_id = $2\n            WHERE id = $1\n            "
+  },
   "35b166044ea26bd71ebad7be36a97c574a0a213c6ed13568f09b3116f21a83a7": {
     "describe": {
       "columns": [],

@@ -2,11 +2,10 @@ use crate::{
     app::{
         api::AppResult,
         error::{Error, ErrorExt, ErrorKind},
-        history_manager,
         session_manager::DeleteSession,
         state::State,
     },
-    session::SessionKey,
+    session::{SessionId, SessionKey},
 };
 use anyhow::Context;
 use axum::{body, response::IntoResponse, Extension, Json};
@@ -15,7 +14,7 @@ use serde_derive::{Deserialize, Serialize};
 use std::fmt;
 use tracing::error;
 
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize, Serialize, Debug)]
 pub struct DeletePayload {
     pub session_key: SessionKey,
 }
@@ -23,7 +22,7 @@ pub struct DeletePayload {
 #[derive(Deserialize, Serialize, Debug)]
 #[serde(tag = "type", content = "payload", rename_all = "snake_case")]
 pub enum Response {
-    DeleteSuccess,
+    DeleteSuccess(SessionId),
     DeleteFailure(Reason),
 }
 
@@ -31,7 +30,6 @@ pub enum Response {
 #[serde(rename_all = "snake_case")]
 pub enum Reason {
     NotFound,
-    FailedToDelete,
     MessagingFailed,
 }
 
@@ -39,7 +37,6 @@ impl fmt::Display for Reason {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let reason = match self {
             Reason::NotFound => "Not found",
-            Reason::FailedToDelete => "Failed to delete from DB",
             Reason::MessagingFailed => "Messaging failed",
         };
         write!(f, "{}", reason)
@@ -56,18 +53,7 @@ pub async fn delete<S: State>(
 async fn do_delete<S: State>(state: S, payload: DeletePayload) -> AppResult {
     let (status, resp) = match state.delete_session(payload.session_key).await {
         Ok(DeleteSession::Success(session_id)) => {
-            match history_manager::move_single_session(state.clone(), session_id).await {
-                Ok(_) => {
-                    return Ok(Json(Response::DeleteSuccess).into_response());
-                }
-                Err(e) => {
-                    error!(error = %e, "Failed to move session to history");
-                    (
-                        StatusCode::UNPROCESSABLE_ENTITY,
-                        Response::DeleteFailure(Reason::FailedToDelete),
-                    )
-                }
-            }
+            return Ok(Json(Response::DeleteSuccess(session_id)).into_response());
         }
         Ok(DeleteSession::NotFound) => (
             StatusCode::NOT_FOUND,
