@@ -1,4 +1,7 @@
-use crate::classroom::ClassroomId;
+use crate::{
+    classroom::ClassroomId,
+    session::{SessionId, SessionKey},
+};
 use http::StatusCode;
 use serde::{de::Error, Deserialize, Deserializer};
 use serde_derive::Serialize;
@@ -8,6 +11,25 @@ use svc_error::{extension::sentry, Error as SvcError};
 pub use handler::handler;
 
 mod handler;
+
+#[derive(Debug)]
+struct Session {
+    id: SessionId,
+    key: SessionKey,
+    kind: SessionKind,
+}
+
+impl Session {
+    fn new(id: SessionId, key: SessionKey, kind: SessionKind) -> Self {
+        Self { id, key, kind }
+    }
+}
+
+#[derive(Debug)]
+enum SessionKind {
+    New,
+    Replaced,
+}
 
 #[derive(Deserialize)]
 #[serde(tag = "type", content = "payload", rename_all = "snake_case")]

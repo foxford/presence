@@ -54,7 +54,7 @@ pub async fn close_connection<S: State>(
     let url = format!(
         "http://{}:{}/api/v1/sessions",
         replica_ip,
-        state.config().internal_listener_address.port() // 4002,
+        state.config().internal_listener_address.port()
     );
 
     info!(replica_ip = %replica_ip, "Trying to close connection on another replica");
