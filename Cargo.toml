@@ -29,10 +29,10 @@ svc-agent = { version = "0.20", features = ["sqlx"] }
 svc-authn = { version = "0.8", features = ["jose", "sqlx"] }
 svc-authz = "0.12"
 svc-error = { version = "0.5", features = ["sentry-extension", "sqlx", "serialize-status-code"] }
-svc-events = "0.4"
+svc-events = "0.5"
 
 # todo: update versions
-svc-nats-client = { version = "0.3", git = "https://github.com/foxford/svc-nats-client", branch = "feature/ulms-2415/update-client" }
+svc-nats-client = { version = "0.3", git = "https://github.com/foxford/svc-nats-client", branch = "main" }
 
 svc-utils = { version = "0.7", features = ["log-middleware", "authn-extractor", "metrics-middleware", "cors-middleware"] }
 thiserror = "1.0"

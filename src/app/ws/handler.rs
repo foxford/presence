@@ -41,7 +41,7 @@ use svc_authn::{
 use svc_error::extension::sentry;
 use svc_events::{AgentEventV1 as AgentEvent, EventV1 as Event};
 use tokio::time::{interval, timeout, MissedTickBehavior};
-use tokio_stream::wrappers::BroadcastStream;
+use tokio_stream::wrappers::ReceiverStream;
 use tracing::{error, info, warn};
 
 pub async fn handler<S: State>(
@@ -106,7 +106,7 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
                                 .subscribe(session.key.clone().classroom_id)
                                 .await
                             {
-                                Ok(rx) => Either::Left(BroadcastStream::new(rx)),
+                                Ok(rx) => Either::Left(ReceiverStream::new(rx)),
                                 Err(e) => {
                                     error!(error = ?e);
                                     close_conn_with_msg(sender, Response::from(e)).await;
@@ -167,7 +167,7 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
             msg = nats_rx.next() => {
                 tracing::debug!("got new event from nats");
                 let msg = match msg {
-                    Some(Ok(msg)) => msg,
+                    Some(msg) => msg,
                     _ => {
                         warn!("nats stream is over");
                         break;
