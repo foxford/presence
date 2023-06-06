@@ -8,7 +8,7 @@ use crate::{
     },
     classroom::ClassroomId,
     config::{Config, WebSocketConfig},
-    session::{SessionId, SessionKey},
+    session::*,
     test_helpers::prelude::*,
 };
 use anyhow::Result;
@@ -81,9 +81,9 @@ impl NatsClient for TestNatsClient {
     }
     async fn publish_event(
         &self,
-        _session_key: SessionKey,
-        _session_id: SessionId,
+        _session: &Session,
         _event: Event,
+        _operation: String,
     ) -> Result<()> {
         unimplemented!()
     }

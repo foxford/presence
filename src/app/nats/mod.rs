@@ -1,12 +1,9 @@
-use crate::{
-    classroom::ClassroomId,
-    session::{SessionId, SessionKey},
-};
+use crate::{classroom::ClassroomId, session::Session};
 use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
 use std::sync::Arc;
-use svc_events::EventV1 as Event;
-use svc_nats_client::{AckPolicy, DeliverPolicy, EventId, Message, NatsClient as AsyncNatsClient};
+use svc_events::{EventId, EventV1 as Event};
+use svc_nats_client::{AckPolicy, DeliverPolicy, Message, NatsClient as AsyncNatsClient};
 use tokio::sync::{mpsc, oneshot};
 use tokio_stream::StreamExt;
 use tracing::{error, info, warn};
@@ -36,12 +33,8 @@ pub struct Client {
 #[async_trait]
 pub trait NatsClient: Send + Sync {
     async fn subscribe(&self, classroom_id: ClassroomId) -> Result<mpsc::Receiver<Message>>;
-    async fn publish_event(
-        &self,
-        session_key: SessionKey,
-        session_id: SessionId,
-        event: Event,
-    ) -> Result<()>;
+    async fn publish_event(&self, session: &Session, event: Event, operation: String)
+        -> Result<()>;
 }
 
 impl Client {
@@ -118,26 +111,30 @@ impl NatsClient for Client {
 
     async fn publish_event(
         &self,
-        session_key: SessionKey,
-        session_id: SessionId,
+        session: &Session,
         event: Event,
+        operation: String,
     ) -> Result<()> {
         let subject = svc_nats_client::Subject::new(
             SUBJECT_PREFIX.to_string(),
-            session_key.classroom_id.into(),
+            session.key().classroom_id.into(),
             ENTITY_TYPE.to_string(),
         );
 
         let event = svc_events::Event::from(event);
         let payload = serde_json::to_vec(&event)?;
 
-        let event_id = EventId::from((ENTITY_TYPE.to_string(), session_id.into()));
+        let event_id = EventId::from((ENTITY_TYPE.to_string(), operation, session.id().into()));
 
-        let event =
-            svc_nats_client::event::Builder::new(subject, payload, event_id, session_key.agent_id)
-                .internal(false)
-                .disable_deduplication()
-                .build();
+        let event = svc_nats_client::event::Builder::new(
+            subject,
+            payload,
+            event_id,
+            session.key().clone().agent_id,
+        )
+        .internal(false)
+        .disable_deduplication()
+        .build();
 
         self.inner.publish(&event).await?;
 

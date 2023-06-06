@@ -32,7 +32,7 @@ svc-error = { version = "0.5", features = ["sentry-extension", "sqlx", "serializ
 svc-events = "0.5"
 
 # todo: update versions
-svc-nats-client = { version = "0.3", git = "https://github.com/foxford/svc-nats-client", branch = "main" }
+svc-nats-client = { version = "0.3", git = "https://github.com/foxford/svc-nats-client", branch = "ULMS-1896/add-consumer-move-event-id" }
 
 svc-utils = { version = "0.7", features = ["log-middleware", "authn-extractor", "metrics-middleware", "cors-middleware"] }
 thiserror = "1.0"

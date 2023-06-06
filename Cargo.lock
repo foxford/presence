@@ -2949,18 +2949,21 @@ dependencies = [
 [[package]]
 name = "svc-nats-client"
 version = "0.3.0"
-source = "git+https://github.com/foxford/svc-nats-client?branch=main#559bcd3edca8b06beecc619c589482fa9eff3099"
+source = "git+https://github.com/foxford/svc-nats-client?branch=ULMS-1896/add-consumer-move-event-id#847aee5f02e338c6555bda86c3e9660311666745"
 dependencies = [
  "anyhow",
  "async-nats",
  "async-trait",
  "futures",
+ "futures-util",
  "humantime-serde",
  "reqwest",
  "serde",
  "svc-agent",
  "svc-error",
+ "svc-events",
  "thiserror",
+ "tokio",
  "tracing",
  "uuid 1.3.3",
 ]
