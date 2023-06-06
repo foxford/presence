@@ -42,6 +42,9 @@ use tokio::time::{interval, timeout, MissedTickBehavior};
 use tokio_stream::wrappers::ReceiverStream;
 use tracing::{error, info, warn};
 
+const ENTERED_OPERATION: &str = "entered";
+const LEAVED_OPERATION: &str = "leaved";
+
 pub async fn handler<S: State>(
     ws: WebSocketUpgrade,
     Extension(state): Extension<S>,
@@ -80,13 +83,13 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
                         Some(nats_client) => {
                             // Send `agent.enter` to others only if the session is new and not replaced
                             if let SessionKind::New = session.kind() {
-                                let event = AgentEvent::Enter {
+                                let event = AgentEvent::Entered {
                                     agent_id: session.key().clone().agent_id,
                                 };
                                 let event = Event::from(event);
 
                                 if let Err(e) = nats_client
-                                    .publish_event(&session, event, "enter".into())
+                                    .publish_event(&session, event, ENTERED_OPERATION.into())
                                     .await
                                 {
                                     error!(error = %e, "Failed to send agent.enter notification");
@@ -325,13 +328,13 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
     }
 
     if let Some(nats_client) = state.nats_client() {
-        let event = AgentEvent::Leave {
+        let event = AgentEvent::Leaved {
             agent_id: session.key().clone().agent_id,
         };
         let event = Event::from(event);
 
         if let Err(e) = nats_client
-            .publish_event(&session, event, "leave".into())
+            .publish_event(&session, event, LEAVED_OPERATION.into())
             .await
         {
             error!(error = %e, "Failed to send agent.leave notification");

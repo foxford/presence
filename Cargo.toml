@@ -29,9 +29,9 @@ svc-agent = { version = "0.20", features = ["sqlx"] }
 svc-authn = { version = "0.8", features = ["jose", "sqlx"] }
 svc-authz = "0.12"
 svc-error = { version = "0.5", features = ["sentry-extension", "sqlx", "serialize-status-code"] }
-svc-events = "0.5"
+svc-events = "0.7"
 
-# todo: update versions
+# todo: update version
 svc-nats-client = { version = "0.3", git = "https://github.com/foxford/svc-nats-client", branch = "ULMS-1896/add-consumer-move-event-id" }
 
 svc-utils = { version = "0.7", features = ["log-middleware", "authn-extractor", "metrics-middleware", "cors-middleware"] }
