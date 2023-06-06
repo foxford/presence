@@ -43,7 +43,7 @@ use tokio_stream::wrappers::ReceiverStream;
 use tracing::{error, info, warn};
 
 const ENTERED_OPERATION: &str = "entered";
-const LEAVED_OPERATION: &str = "leaved";
+const LEFT_OPERATION: &str = "left";
 
 pub async fn handler<S: State>(
     ws: WebSocketUpgrade,
@@ -328,13 +328,13 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
     }
 
     if let Some(nats_client) = state.nats_client() {
-        let event = AgentEvent::Leaved {
+        let event = AgentEvent::Left {
             agent_id: session.key().clone().agent_id,
         };
         let event = Event::from(event);
 
         if let Err(e) = nats_client
-            .publish_event(&session, event, LEAVED_OPERATION.into())
+            .publish_event(&session, event, LEFT_OPERATION.into())
             .await
         {
             error!(error = %e, "Failed to send agent.leave notification");

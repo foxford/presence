@@ -2945,9 +2945,9 @@ dependencies = [
 
 [[package]]
 name = "svc-events"
-version = "0.7.0"
+version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "15432fcea5a7eaa54236ee253e2b573bd720ef6c94a7849be17804200830b7d5"
+checksum = "228a424dd823e8409c6310020493194245b6b92798c872b991b2976de458c4fb"
 dependencies = [
  "serde",
  "serde_json",
@@ -2959,9 +2959,9 @@ dependencies = [
 
 [[package]]
 name = "svc-nats-client"
-version = "0.4.0"
+version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7c3e4531869492d14522079bed5c0a021d520606e859a8e759af43a9fb404a6d"
+checksum = "7f061ac18217cc6820edd3c70eceee7664bf05f7fef2ce9b30960fcb6c550fee"
 dependencies = [
  "anyhow",
  "async-nats",
