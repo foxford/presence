@@ -29,7 +29,7 @@ sequenceDiagram
     Agent ->> Presence2: connect
     activate Presence2
     Presence2 ->> Agent: success
-    Agent ->> Presence1: close connection
+    Presence1 ->> Agent: replaced
     deactivate Presence1
     note over Presence1: wait for 10s
     Presence1 ->> Presence1: close all active connections

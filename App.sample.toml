@@ -21,3 +21,5 @@ trusted = ["dev.svc.example.org"]
 
 [nats]
 url = "127.0.0.1:4223"
+creds = "nats.creds"
+subscribe_ephemeral.stream = "classroom-out"

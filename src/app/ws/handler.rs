@@ -7,8 +7,7 @@ use crate::{
         session_manager::TerminateSession,
         state::State,
         ws::{
-            ConnectRequest, RecoverableSessionError, Request, Response, Session, SessionKind,
-            UnrecoverableSessionError,
+            ConnectRequest, RecoverableSessionError, Request, Response, UnrecoverableSessionError,
         },
     },
     authz::AuthzObject,
@@ -17,8 +16,7 @@ use crate::{
         self,
         agent_session::{self, InsertResult},
     },
-    session::SessionId,
-    session::SessionKey,
+    session::*,
 };
 use anyhow::{anyhow, Result};
 use axum::{
@@ -41,8 +39,11 @@ use svc_authn::{
 use svc_error::extension::sentry;
 use svc_events::{AgentEventV1 as AgentEvent, EventV1 as Event};
 use tokio::time::{interval, timeout, MissedTickBehavior};
-use tokio_stream::wrappers::BroadcastStream;
+use tokio_stream::wrappers::ReceiverStream;
 use tracing::{error, info, warn};
+
+const ENTERED_OPERATION: &str = "entered";
+const LEFT_OPERATION: &str = "left";
 
 pub async fn handler<S: State>(
     ws: WebSocketUpgrade,
@@ -68,10 +69,11 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
             Ok(msg) => match handle_authn_message(msg, authn, state.clone()).await {
                 Ok((m, session)) => {
                     // To close old connections from the same agents
-                    let close_rx = match state.register_session(session.key.clone(), session.id) {
+                    let close_rx = match state.register_session(session.key().clone(), session.id())
+                    {
                         Ok(rx) => rx,
                         Err(e) => {
-                            error!(error = %e, "Failed to register session_key: {}", session.key);
+                            error!(error = %e, "Failed to register session_key: {}", session.key());
                             close_conn_with_msg(sender, Response::from(e)).await;
                             return;
                         }
@@ -80,14 +82,14 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
                     let nats_rx = match state.nats_client() {
                         Some(nats_client) => {
                             // Send `agent.enter` to others only if the session is new and not replaced
-                            if let SessionKind::New = session.kind {
-                                let event = AgentEvent::Enter {
-                                    agent_id: session.key.clone().agent_id,
+                            if let SessionKind::New = session.kind() {
+                                let event = AgentEvent::Entered {
+                                    agent_id: session.key().clone().agent_id,
                                 };
                                 let event = Event::from(event);
 
                                 if let Err(e) = nats_client
-                                    .publish_event(session.key.clone(), session.id, event)
+                                    .publish_event(&session, event, ENTERED_OPERATION.into())
                                     .await
                                 {
                                     error!(error = %e, "Failed to send agent.enter notification");
@@ -103,10 +105,10 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
                             }
 
                             match nats_client
-                                .subscribe(session.key.clone().classroom_id)
+                                .subscribe(session.key().clone().classroom_id)
                                 .await
                             {
-                                Ok(rx) => Either::Left(BroadcastStream::new(rx)),
+                                Ok(rx) => Either::Left(ReceiverStream::new(rx)),
                                 Err(e) => {
                                     error!(error = ?e);
                                     close_conn_with_msg(sender, Response::from(e)).await;
@@ -117,7 +119,7 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
                         None => Either::Right(tokio_stream::pending()),
                     };
 
-                    info!("Successful authentication, session_key: {}", &session.key);
+                    info!("Successful authentication, session_key: {}", session.key());
                     let _ = sender.send(Message::Text(m)).await;
                     state.metrics().ws_connection_success().inc();
 
@@ -167,7 +169,7 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
             msg = nats_rx.next() => {
                 tracing::debug!("got new event from nats");
                 let msg = match msg {
-                    Some(Ok(msg)) => msg,
+                    Some(msg) => msg,
                     _ => {
                         warn!("nats stream is over");
                         break;
@@ -189,14 +191,14 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
                 }
 
                 // Don't send events to yourself
-                if session.key.agent_id == headers.sender_id().clone() {
+                if session.key().agent_id == headers.sender_id().clone() {
                     continue;
                 }
 
                 if let Some(receiver_id) = headers.receiver_id() {
                     // If there is a receiver_id in the nats headers,
                     // then we send a message only to this agent
-                    if session.key.agent_id != receiver_id.clone() {
+                    if session.key().agent_id != receiver_id.clone() {
                         continue;
                     }
                 }
@@ -326,13 +328,13 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
     }
 
     if let Some(nats_client) = state.nats_client() {
-        let event = AgentEvent::Leave {
-            agent_id: session.key.clone().agent_id,
+        let event = AgentEvent::Left {
+            agent_id: session.key().clone().agent_id,
         };
         let event = Event::from(event);
 
         if let Err(e) = nats_client
-            .publish_event(session.key.clone(), session.id, event)
+            .publish_event(&session, event, LEFT_OPERATION.into())
             .await
         {
             error!(error = %e, "Failed to send agent.leave notification");
@@ -341,13 +343,13 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
         }
     }
 
-    if let Err(e) = state.terminate_session(session.key.clone()).await {
-        error!(error = %e, "Failed to terminate session_key: {}", session.key);
+    if let Err(e) = state.terminate_session(session.key().clone()).await {
+        error!(error = %e, "Failed to terminate session_key: {}", session.key());
         send_to_sentry(e);
         return;
     }
 
-    if let Err(e) = history_manager::move_single_session(state, session.id).await {
+    if let Err(e) = history_manager::move_single_session(state, session.id()).await {
         error!(error = %e, "Failed to move session to history");
         send_to_sentry(e);
     }
@@ -689,7 +691,7 @@ mod tests {
 
             assert_eq!(resp, success);
             assert_eq!(
-                session.key,
+                session.key().clone(),
                 SessionKey::new(agent.agent_id().to_owned(), classroom_id)
             );
         }

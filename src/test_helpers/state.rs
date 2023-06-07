@@ -8,7 +8,7 @@ use crate::{
     },
     classroom::ClassroomId,
     config::{Config, WebSocketConfig},
-    session::{SessionId, SessionKey},
+    session::*,
     test_helpers::prelude::*,
 };
 use anyhow::Result;
@@ -22,7 +22,7 @@ use svc_authn::AccountId;
 use svc_authz::ClientMap as Authz;
 use svc_events::EventV1 as Event;
 use svc_nats_client::Message;
-use tokio::sync::{broadcast::Receiver, mpsc};
+use tokio::sync::mpsc;
 use uuid::Uuid;
 
 #[derive(Clone)]
@@ -76,14 +76,14 @@ struct TestNatsClient;
 
 #[async_trait]
 impl NatsClient for TestNatsClient {
-    async fn subscribe(&self, _classroom_id: ClassroomId) -> Result<Receiver<Message>> {
+    async fn subscribe(&self, _classroom_id: ClassroomId) -> Result<mpsc::Receiver<Message>> {
         unimplemented!()
     }
     async fn publish_event(
         &self,
-        _session_key: SessionKey,
-        _session_id: SessionId,
+        _session: &Session,
         _event: Event,
+        _operation: String,
     ) -> Result<()> {
         unimplemented!()
     }
