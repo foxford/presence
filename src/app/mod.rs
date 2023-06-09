@@ -16,8 +16,8 @@ use tracing::{error, info};
 
 mod api;
 mod history_manager;
+mod http;
 mod replica;
-mod router;
 mod ws;
 
 pub mod cluster_ip;
@@ -81,8 +81,8 @@ pub async fn run(db: PgPool, authz_cache: Option<AuthzCache>) -> Result<()> {
         config.websocket.wait_before_close_connection,
     );
 
-    let router = router::new(state.clone(), config.authn.clone());
-    let internal_router = router::new_internal(state.clone());
+    let router = http::router(state.clone(), config.authn.clone());
+    let internal_router = http::internal_router(state.clone());
 
     // Public API
     let mut shutdown_server_rx = shutdown_rx.clone();
