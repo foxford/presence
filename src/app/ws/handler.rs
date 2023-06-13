@@ -81,6 +81,18 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
 
                     let nats_rx = match state.nats_client() {
                         Some(nats_client) => {
+                            let nats_rx = match nats_client
+                                .subscribe(session.key().clone().classroom_id)
+                                .await
+                            {
+                                Ok(rx) => Either::Left(ReceiverStream::new(rx)),
+                                Err(e) => {
+                                    error!(error = ?e);
+                                    close_conn_with_msg(sender, Response::from(e)).await;
+                                    return;
+                                }
+                            };
+
                             // Send `agent.enter` to others only if the session is new and not replaced
                             if let SessionKind::New = session.kind() {
                                 let event = AgentEvent::Entered {
@@ -104,17 +116,7 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
                                 }
                             }
 
-                            match nats_client
-                                .subscribe(session.key().clone().classroom_id)
-                                .await
-                            {
-                                Ok(rx) => Either::Left(ReceiverStream::new(rx)),
-                                Err(e) => {
-                                    error!(error = ?e);
-                                    close_conn_with_msg(sender, Response::from(e)).await;
-                                    return;
-                                }
-                            }
+                            nats_rx
                         }
                         None => Either::Right(tokio_stream::pending()),
                     };
