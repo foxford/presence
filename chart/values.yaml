@@ -54,8 +54,6 @@ clusterService:
     metrics: 8888
     internal: 8081
 
-nats: {}
-
 tls:
   secretName: tls-certificates
 

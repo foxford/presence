@@ -46,13 +46,8 @@ pub async fn run(db: PgPool, authz_cache: Option<AuthzCache>) -> Result<()> {
     // A channel for managing agent session via sending commands from WebSocket handler
     let (cmd_tx, cmd_rx) = mpsc::unbounded_channel::<session_manager::SessionCommand>();
 
-    let nats_client = match &config.nats {
-        Some(nats_cfg) => {
-            info!("Connecting to NATS");
-            Some(nats::Client::new(nats_cfg.clone()).await?)
-        }
-        None => None,
-    };
+    info!("Connecting to NATS");
+    let nats_client = nats::Client::new(config.nats.clone()).await?;
 
     let state = AppState::new(
         config.clone(),
@@ -161,10 +156,8 @@ pub async fn run(db: PgPool, authz_cache: Option<AuthzCache>) -> Result<()> {
         report_error(ErrorKind::ShutdownFailed, "Failed to terminate replica", e);
     }
 
-    if let Some(nats_client) = nats_client {
-        if let Err(e) = nats_client.shutdown().await {
-            report_error(ErrorKind::ShutdownFailed, "Nats client shutdown failed", e);
-        }
+    if let Err(e) = nats_client.shutdown().await {
+        report_error(ErrorKind::ShutdownFailed, "Nats client shutdown failed", e);
     }
 
     metrics_server.shutdown().await;

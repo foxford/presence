@@ -58,7 +58,12 @@ impl TestState {
             },
             authz: Default::default(),
             svc_audience: SVC_AUDIENCE.to_string(),
-            nats: None,
+            nats: svc_nats_client::Config {
+                url: "".to_string(),
+                creds: "".to_string(),
+                subscribe_durable: None,
+                subscribe_ephemeral: None,
+            },
         };
         let audience_estimator = AudienceEstimator::new(&config.authz);
         Self {
@@ -129,8 +134,8 @@ impl State for TestState {
         Ok(conn)
     }
 
-    fn nats_client(&self) -> Option<&dyn NatsClient> {
-        Some(self.nats_client.as_ref())
+    fn nats_client(&self) -> &dyn NatsClient {
+        self.nats_client.as_ref()
     }
 
     fn lookup_known_authz_audience(&self, aud: &str) -> Option<&str> {

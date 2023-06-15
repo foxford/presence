@@ -34,7 +34,7 @@ pub trait State: Send + Sync + Clone + 'static {
     async fn terminate_session(&self, session_key: SessionKey) -> Result<TerminateSession>;
     async fn delete_session(&self, session_key: SessionKey) -> Result<DeleteSession>;
     async fn get_conn(&self) -> Result<PoolConnection<Postgres>>;
-    fn nats_client(&self) -> Option<&dyn NatsClient>;
+    fn nats_client(&self) -> &dyn NatsClient;
     fn lookup_known_authz_audience(&self, aud: &str) -> Option<&str>;
 }
 
@@ -49,7 +49,7 @@ struct InnerState {
     authz: Authz,
     replica_id: Uuid,
     cmd_sender: UnboundedSender<SessionCommand>,
-    nats_client: Option<Box<dyn NatsClient>>,
+    nats_client: Box<dyn NatsClient>,
     metrics: Metrics,
     audience_estimator: AudienceEstimator,
 }
@@ -61,7 +61,7 @@ impl AppState {
         authz: Authz,
         replica_id: Uuid,
         cmd_sender: UnboundedSender<SessionCommand>,
-        nats_client: Option<N>,
+        nats_client: N,
         metrics: Metrics,
     ) -> Self {
         let audience_estimator = AudienceEstimator::new(&config.authz);
@@ -72,7 +72,7 @@ impl AppState {
                 authz,
                 replica_id,
                 cmd_sender,
-                nats_client: nats_client.map(|c| Box::new(c) as Box<dyn NatsClient>),
+                nats_client: Box::new(nats_client),
                 metrics,
                 audience_estimator,
             }),
@@ -137,8 +137,8 @@ impl State for AppState {
             .context("Failed to acquire DB connection")
     }
 
-    fn nats_client(&self) -> Option<&dyn NatsClient> {
-        self.inner.nats_client.as_ref().map(Box::as_ref)
+    fn nats_client(&self) -> &dyn NatsClient {
+        self.inner.nats_client.as_ref()
     }
 
     fn lookup_known_authz_audience(&self, aud: &str) -> Option<&str> {

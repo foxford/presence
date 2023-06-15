@@ -15,7 +15,7 @@ pub struct Config {
     pub websocket: WebSocketConfig,
     pub authz: Authz,
     pub svc_audience: String,
-    pub nats: Option<svc_nats_client::Config>,
+    pub nats: svc_nats_client::Config,
 }
 
 #[derive(Clone, Debug, Deserialize)]
