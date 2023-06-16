@@ -24,6 +24,12 @@ app:
     authentication_timeout: 5s
     wait_before_close_connection: 10s
 
+  nats:
+    url:
+    creds:
+    subscribe_ephemeral:
+      stream:
+
 migrations:
   image:
     repository: cr.yandex/crp1of6bddata8ain3q5/presence-migration
