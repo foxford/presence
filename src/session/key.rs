@@ -20,6 +20,10 @@ impl SessionKey {
 
 impl Display for SessionKey {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "({}, {})", self.agent_id, self.classroom_id)
+        write!(
+            f,
+            "(agent_id: {}, classroom_id: {})",
+            self.agent_id, self.classroom_id
+        )
     }
 }

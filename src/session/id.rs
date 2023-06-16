@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgTypeInfo;
+use std::fmt::{Display, Formatter};
 
 #[derive(Debug, sqlx::Type, Clone, Copy, Hash, Eq, PartialEq, Serialize, Deserialize)]
 #[sqlx(transparent)]
@@ -20,5 +21,11 @@ impl From<i64> for SessionId {
 impl From<SessionId> for i64 {
     fn from(value: SessionId) -> Self {
         value.0
+    }
+}
+
+impl Display for SessionId {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
     }
 }

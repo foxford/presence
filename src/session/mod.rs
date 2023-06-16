@@ -1,3 +1,5 @@
+use std::fmt::{Display, Formatter};
+
 mod id;
 mod key;
 mod kind;
@@ -28,5 +30,11 @@ impl Session {
 
     pub fn kind(&self) -> SessionKind {
         self.kind
+    }
+}
+
+impl Display for Session {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "id: {}, key: {}, kind: {}", self.id, self.key, self.kind)
     }
 }
