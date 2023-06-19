@@ -112,6 +112,6 @@ data:
     {{- end }}
 
     [nats]
-    url = {{ .Values.app.nats.url | quote }}
-    creds = {{ .Values.app.nats.creds | quote }}
-    subscribe_ephemeral.stream = {{ .Values.app.nats.subscribe_ephemeral.stream | quote }}
+    url = {{ .Values.nats.url | quote }}
+    creds = {{ .Values.nats.creds | quote }}
+    subscribe_ephemeral.stream = {{ .Values.nats.subscribe_ephemeral.stream | quote }}
