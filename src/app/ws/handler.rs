@@ -297,7 +297,6 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
     {
         error!(error = %e, "Failed to send agent.leave notification");
         send_to_sentry(e);
-        return;
     }
 
     // Delete the agent session from the replica
@@ -306,7 +305,6 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
     if let Err(e) = state.terminate_session(session.key().clone()).await {
         error!(error = %e, "Failed to terminate session_key: {}", session.key());
         send_to_sentry(e);
-        return;
     }
 
     // Delete the agent session from DB
