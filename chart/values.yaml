@@ -69,3 +69,4 @@ nats:
   creds:
   subscribe_ephemeral:
     stream:
+    consumer_prefix:

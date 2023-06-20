@@ -115,3 +115,4 @@ data:
     url = {{ .Values.nats.url | quote }}
     creds = {{ .Values.nats.creds | quote }}
     subscribe_ephemeral.stream = {{ .Values.nats.subscribe_ephemeral.stream | quote }}
+    subscribe_ephemeral.consumer_prefix = {{ .Values.nats.subscribe_ephemeral.consumer_prefix | quote }}

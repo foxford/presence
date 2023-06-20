@@ -125,7 +125,6 @@ pub async fn run(db: PgPool, authz_cache: Option<AuthzCache>) -> Result<()> {
             e.into(),
         );
     }
-    warn!("session manager stopped");
 
     if let Err(e) = server.await {
         report_error(
@@ -134,7 +133,6 @@ pub async fn run(db: PgPool, authz_cache: Option<AuthzCache>) -> Result<()> {
             e.into(),
         );
     }
-    warn!("api server stopped");
 
     if let Err(e) = internal_server.await {
         report_error(
@@ -143,7 +141,6 @@ pub async fn run(db: PgPool, authz_cache: Option<AuthzCache>) -> Result<()> {
             e.into(),
         );
     }
-    warn!("internal api server stopped");
 
     // Move hanging sessions to history
     // NOTE: This process should be started after the completion of the internal API
@@ -155,17 +152,14 @@ pub async fn run(db: PgPool, authz_cache: Option<AuthzCache>) -> Result<()> {
             e,
         );
     }
-    warn!(%replica_id, "all sessions moved to history");
 
     if let Err(e) = replica::terminate(&db, replica_id).await {
         report_error(ErrorKind::ShutdownFailed, "failed to terminate replica", e);
     }
-    warn!(%replica_id, "replica terminated");
 
     if let Err(e) = nats_client.shutdown().await {
         report_error(ErrorKind::ShutdownFailed, "nats client shutdown failed", e);
     }
-    warn!("nats client stopped");
 
     metrics_server.shutdown().await;
 
