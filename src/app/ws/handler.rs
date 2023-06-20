@@ -295,13 +295,13 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
         .publish_event(&session, event, LEFT_OPERATION.into())
         .await
     {
-        error!(error = %e, "Failed to send agent.leave notification");
+        error!(error = %e, "Failed to send agent.left notification");
         send_to_sentry(e);
     }
 
     // Delete the agent session from the replica
     // If this is not done, then the next time the agent is connected,
-    // other agents won't receive the `agent.enter` message
+    // other agents won't receive the `agent.entered` message
     if let Err(e) = state.terminate_session(session.key().clone()).await {
         error!(error = %e, "Failed to terminate session_key: {}", session.key());
         send_to_sentry(e);
@@ -368,7 +368,7 @@ async fn register_and_subscribe_session<S: State>(
         .await
         .map(ReceiverStream::new)?;
 
-    // Send `agent.enter` to others only if the session is new and not replaced
+    // Send `agent.entered` to others only if the session is new and not replaced
     if session.kind() == SessionKind::Replaced {
         return Ok((nats_rx, close_rx));
     }

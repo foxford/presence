@@ -31,7 +31,7 @@ svc-authz = "0.12"
 svc-error = { version = "0.5", features = ["sentry-extension", "sqlx", "serialize-status-code"] }
 svc-events = "0.9"
 # todo: update version
-svc-nats-client = { version = "0.5", git = "https://github.com/foxford/svc-nats-client", branch = "ulms-2441-add-consumer-prefix" }
+svc-nats-client = { version = "0.6.0", git = "https://github.com/foxford/svc-nats-client", branch = "ulms-2441-add-consumer-prefix" }
 svc-utils = { version = "0.7", features = ["log-middleware", "authn-extractor", "metrics-middleware", "cors-middleware"] }
 thiserror = "1.0"
 tokio = { version = "1.20", features = ["full"] }

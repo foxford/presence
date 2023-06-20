@@ -2948,8 +2948,8 @@ dependencies = [
 
 [[package]]
 name = "svc-nats-client"
-version = "0.5.1"
-source = "git+https://github.com/foxford/svc-nats-client?branch=ulms-2441-add-consumer-prefix#8bbc38f4e6156512a3c9853b607ab5dbbb0b4710"
+version = "0.6.0"
+source = "git+https://github.com/foxford/svc-nats-client?branch=ulms-2441-add-consumer-prefix#05327d08daba76614970003fafd9cad260f15c4e"
 dependencies = [
  "anyhow",
  "async-nats",
