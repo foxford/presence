@@ -98,7 +98,7 @@ dependencies = [
  "itoa 1.0.6",
  "memchr",
  "nkeys",
- "nuid",
+ "nuid 0.3.2",
  "once_cell",
  "rand",
  "regex",
@@ -1570,6 +1570,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "nuid"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0b61b1710432e483e6a67b20b6c60c6afe0e2fad67aabba3bdb912f3f70ff6ae"
+dependencies = [
+ "once_cell",
+ "rand",
+]
+
+[[package]]
 name = "num-bigint"
 version = "0.2.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1897,7 +1907,7 @@ dependencies = [
  "svc-authn",
  "svc-authz",
  "svc-error",
- "svc-events",
+ "svc-events 0.8.0",
  "svc-nats-client",
  "svc-utils",
  "testcontainers",
@@ -2958,10 +2968,24 @@ dependencies = [
 ]
 
 [[package]]
-name = "svc-nats-client"
-version = "0.4.1"
+name = "svc-events"
+version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7f061ac18217cc6820edd3c70eceee7664bf05f7fef2ce9b30960fcb6c550fee"
+checksum = "a30b9e3f342270165a9e7543f9ba85a45bff586cc04f4d495ffd8b4a44447974"
+dependencies = [
+ "serde",
+ "serde_json",
+ "svc-agent",
+ "svc-authn",
+ "thiserror",
+ "uuid",
+]
+
+[[package]]
+name = "svc-nats-client"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1f97d6549427a503e47ee1698eefb2fef7fafe8df2ba6ffe0d565ed9502b767d"
 dependencies = [
  "anyhow",
  "async-nats",
@@ -2969,11 +2993,12 @@ dependencies = [
  "futures",
  "futures-util",
  "humantime-serde",
+ "nuid 0.4.1",
  "reqwest",
  "serde",
  "svc-agent",
  "svc-error",
- "svc-events",
+ "svc-events 0.9.0",
  "thiserror",
  "tokio",
  "tracing",
