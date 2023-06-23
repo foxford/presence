@@ -2,22 +2,28 @@ apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: {{ include "presence.fullname" . }}
+  labels:
+    {{- include "presence.labels" . | nindent 4 }}
   annotations:
     nginx.ingress.kubernetes.io/rewrite-target: /$2
 spec:
   ingressClassName: {{ .Values.ingress.class | quote }}
   tls:
     - hosts:
-        - {{ .Values.ingress.host }}
+        {{- range $host := .Values.ingress.hosts }}
+        - {{ $host | quote }}
+        {{- end }}
       secretName: {{ .Values.tls.secretName }}
   rules:
-    - host: {{ .Values.ingress.host | quote }}
+    {{- range $host := .Values.ingress.hosts }}
+    - host: {{ $host | quote }}
       http:
         paths:
-          - path: {{ include "presence.ingressPath" . }}(/|$)(.*)
+          - path: {{ include "presence.ingressPath" $ }}(/|$)(.*)
             pathType: Prefix
             backend:
               service:
-                name: {{ include "presence.fullname" . }}-cluster
+                name: {{ include "presence.fullname" $ }}-cluster
                 port:
-                  number: {{ get .Values.clusterService.ports "http" }}
+                  number: {{ $.Values.clusterService.ports.http }}
+    {{- end }}

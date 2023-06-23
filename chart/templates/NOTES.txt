@@ -1,8 +1,12 @@
 The app is deployed at
-  http{{ if $.Values.tls }}s{{ end }}://{{ .Values.ingress.host }}{{ include "presence.ingressPath" . }}
+  {{- range $host := .Values.ingress.hosts }}
+  http{{ if $.Values.tls }}s{{ end }}://{{ $host }}{{ include "presence.ingressPath" $ }}
+  {{- end }}
 
 You can confirm that its running by visiting
-  http{{ if $.Values.tls }}s{{ end }}://{{ .Values.ingress.host }}{{ include "presence.ingressPath" . }}/healthz
+  {{- range $host := .Values.ingress.hosts }}
+  http{{ if $.Values.tls }}s{{ end }}://{{ $host }}{{ include "presence.ingressPath" $ }}/healthz
+  {{- end }}
 or by running helm tests:
   helm test -n {{ .Release.Namespace }} {{ .Release.Name }} %chart_dir%
 
