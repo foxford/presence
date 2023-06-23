@@ -98,7 +98,7 @@ dependencies = [
  "itoa 1.0.6",
  "memchr",
  "nkeys",
- "nuid",
+ "nuid 0.3.2",
  "once_cell",
  "rand",
  "regex",
@@ -1570,6 +1570,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "nuid"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0b61b1710432e483e6a67b20b6c60c6afe0e2fad67aabba3bdb912f3f70ff6ae"
+dependencies = [
+ "once_cell",
+ "rand",
+]
+
+[[package]]
 name = "num-bigint"
 version = "0.2.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1893,11 +1903,11 @@ dependencies = [
  "signal-hook",
  "signal-hook-tokio",
  "sqlx",
- "svc-agent",
+ "svc-agent 0.20.0",
  "svc-authn",
  "svc-authz",
  "svc-error",
- "svc-events",
+ "svc-events 0.8.0",
  "svc-nats-client",
  "svc-utils",
  "testcontainers",
@@ -2890,6 +2900,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "svc-agent"
+version = "0.21.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bef9c610b65f24bab61b52f5a7264983d0e014858e8496282aec7d688baf7869"
+dependencies = [
+ "async-channel",
+ "base64 0.21.2",
+ "chrono",
+ "http",
+ "log",
+ "rumqttc",
+ "serde",
+ "serde_json",
+ "svc-authn",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "svc-authn"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2951,7 +2980,21 @@ checksum = "228a424dd823e8409c6310020493194245b6b92798c872b991b2976de458c4fb"
 dependencies = [
  "serde",
  "serde_json",
- "svc-agent",
+ "svc-agent 0.20.0",
+ "svc-authn",
+ "thiserror",
+ "uuid",
+]
+
+[[package]]
+name = "svc-events"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fd95ffc58bcf9f5e3ea162f04a6f944b322efcfac3acc9676b28127fb462e636"
+dependencies = [
+ "serde",
+ "serde_json",
+ "svc-agent 0.21.0",
  "svc-authn",
  "thiserror",
  "uuid",
@@ -2959,9 +3002,9 @@ dependencies = [
 
 [[package]]
 name = "svc-nats-client"
-version = "0.4.1"
+version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7f061ac18217cc6820edd3c70eceee7664bf05f7fef2ce9b30960fcb6c550fee"
+checksum = "6a2723813bad608338be9bbf24cee5d89128f2c9f59bb8bbd560c7fda6c8f4e1"
 dependencies = [
  "anyhow",
  "async-nats",
@@ -2969,11 +3012,12 @@ dependencies = [
  "futures",
  "futures-util",
  "humantime-serde",
+ "nuid 0.4.1",
  "reqwest",
  "serde",
- "svc-agent",
+ "svc-agent 0.21.0",
  "svc-error",
- "svc-events",
+ "svc-events 0.10.0",
  "thiserror",
  "tokio",
  "tracing",
@@ -2992,7 +3036,7 @@ dependencies = [
  "hyper",
  "once_cell",
  "prometheus",
- "svc-agent",
+ "svc-agent 0.20.0",
  "svc-authn",
  "svc-error",
  "tokio",
