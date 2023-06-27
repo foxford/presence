@@ -54,8 +54,6 @@ clusterService:
     metrics: 8888
     internal: 8081
 
-nats: {}
-
 tls:
   secretName: tls-certificates
 
@@ -65,3 +63,10 @@ serviceMonitor:
 
 ingress:
   class: nginx
+
+nats:
+  url:
+  creds:
+  subscribe_ephemeral:
+    stream:
+    consumer_prefix:

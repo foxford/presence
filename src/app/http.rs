@@ -11,12 +11,12 @@ use axum::{
 use std::sync::Arc;
 use svc_utils::middleware::{CorsLayer, LogLayer, MeteredRoute};
 
-pub fn new<S: State>(state: S, authn: svc_authn::jose::ConfigMap) -> Router {
-    let router = api_router().merge(ws_router());
-
-    router
+pub fn router<S: State>(state: S, authn: svc_authn::jose::ConfigMap) -> Router {
+    api_router()
+        .merge(ws_router())
         .layer(Extension(Arc::new(authn)))
         .layer(Extension(state))
+        .layer(CorsLayer::new())
         .layer(LogLayer::new())
 }
 
@@ -31,14 +31,13 @@ fn api_router() -> Router {
             "/api/v1/counters/agent",
             post(v1::counter::count_agents::<AppState>),
         )
-        .layer(CorsLayer)
 }
 
 fn ws_router() -> Router {
     Router::new().route("/ws", get(ws::handler::<AppState>))
 }
 
-pub fn new_internal<S: State>(state: S) -> Router {
+pub fn internal_router<S: State>(state: S) -> Router {
     Router::new()
         .route("/api/v1/sessions", delete(v1::session::delete::<AppState>))
         .layer(Extension(state))

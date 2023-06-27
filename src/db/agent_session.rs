@@ -120,21 +120,21 @@ impl<'a> DeleteQuery<'a> {
 
 #[derive(Serialize)]
 pub struct Agent {
-    pub id: SessionId,
+    pub sequence_id: SessionId,
     pub agent_id: AgentId,
 }
 
 pub struct AgentList {
     classroom_id: ClassroomId,
-    offset: usize,
+    sequence_id: usize,
     limit: usize,
 }
 
 impl AgentList {
-    pub fn new(classroom_id: ClassroomId, offset: usize, limit: usize) -> Self {
+    pub fn new(classroom_id: ClassroomId, sequence_id: usize, limit: usize) -> Self {
         Self {
             classroom_id,
-            offset,
+            sequence_id,
             limit,
         }
     }
@@ -144,17 +144,18 @@ impl AgentList {
             Agent,
             r#"
             SELECT
-                id AS "id: SessionId",
+                id AS "sequence_id: SessionId",
                 agent_id AS "agent_id: AgentId"
             FROM agent_session
             WHERE
                 classroom_id = $1::uuid
+                AND id > $3
+            ORDER BY id
             LIMIT $2
-            OFFSET $3
             "#,
             self.classroom_id as ClassroomId,
             self.limit as i32,
-            self.offset as i32
+            self.sequence_id as i32
         )
         .fetch_all(conn)
         .await

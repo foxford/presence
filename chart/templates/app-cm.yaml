@@ -111,10 +111,8 @@ data:
     {{- println "" }}
     {{- end }}
 
-    {{- with .Values.nats }}
-    {{- println "" }}
     [nats]
-    url = {{ .url | quote }}
-    creds = {{ .creds | quote }}
-    subscribe_ephemeral.stream = {{ .subscribe_ephemeral.stream | quote }}
-    {{- end }}
+    url = {{ .Values.nats.url | quote }}
+    creds = {{ .Values.nats.creds | quote }}
+    subscribe_ephemeral.stream = {{ .Values.nats.subscribe_ephemeral.stream | quote }}
+    subscribe_ephemeral.consumer_prefix = {{ .Values.nats.subscribe_ephemeral.consumer_prefix | quote }}

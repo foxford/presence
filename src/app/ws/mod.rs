@@ -43,7 +43,7 @@ pub enum Response {
     RecoverableSessionError(SvcError),
 }
 
-#[derive(PartialEq, Debug)]
+#[derive(Debug, PartialEq)]
 enum UnrecoverableSessionError {
     AccessDenied,
     UnsupportedRequest,

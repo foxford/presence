@@ -167,8 +167,6 @@ async fn add_new_subscription(
         "*".to_string(),
     );
 
-    info!(%subject, "Subscribing to JetStream");
-
     let mut messages = client
         .subscribe_ephemeral(subject.clone(), DeliverPolicy::New, AckPolicy::None)
         .await

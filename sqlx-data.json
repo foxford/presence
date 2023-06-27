@@ -123,6 +123,66 @@
     },
     "query": "\n            SELECT\n                COUNT(*) AS total\n            FROM\n                agent_session_history\n            "
   },
+  "8b17a6fb82f69c0b595438c9f6b9a84ed9419030f87af1e3a44d507bb0f92f16": {
+    "describe": {
+      "columns": [
+        {
+          "name": "sequence_id: SessionId",
+          "ordinal": 0,
+          "type_info": "Int8"
+        },
+        {
+          "name": "agent_id: AgentId",
+          "ordinal": 1,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Composite": [
+                  [
+                    "account_id",
+                    {
+                      "Custom": {
+                        "kind": {
+                          "Composite": [
+                            [
+                              "label",
+                              "Text"
+                            ],
+                            [
+                              "audience",
+                              "Text"
+                            ]
+                          ]
+                        },
+                        "name": "account_id"
+                      }
+                    }
+                  ],
+                  [
+                    "label",
+                    "Text"
+                  ]
+                ]
+              },
+              "name": "agent_id"
+            }
+          }
+        }
+      ],
+      "nullable": [
+        false,
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Uuid",
+          "Int8",
+          "Int8"
+        ]
+      }
+    },
+    "query": "\n            SELECT\n                id AS \"sequence_id: SessionId\",\n                agent_id AS \"agent_id: AgentId\"\n            FROM agent_session\n            WHERE\n                classroom_id = $1::uuid\n                AND id > $3\n            ORDER BY id\n            LIMIT $2\n            "
+  },
   "8cd09966e7f525b819b5ca275a35257457accc423a06ea03d6f1fc599d00397f": {
     "describe": {
       "columns": [
@@ -210,66 +270,6 @@
       }
     },
     "query": "\n            SELECT replica.ip\n            FROM replica\n            JOIN agent_session\n                ON replica.id = agent_session.replica_id\n            WHERE agent_session.agent_id = $1\n                AND agent_session.classroom_id = $2\n            LIMIT 1\n            "
-  },
-  "a44bd975c58a56fdfded5cda57d31505613220e739c5071a3c69ce71b272698a": {
-    "describe": {
-      "columns": [
-        {
-          "name": "id: SessionId",
-          "ordinal": 0,
-          "type_info": "Int8"
-        },
-        {
-          "name": "agent_id: AgentId",
-          "ordinal": 1,
-          "type_info": {
-            "Custom": {
-              "kind": {
-                "Composite": [
-                  [
-                    "account_id",
-                    {
-                      "Custom": {
-                        "kind": {
-                          "Composite": [
-                            [
-                              "label",
-                              "Text"
-                            ],
-                            [
-                              "audience",
-                              "Text"
-                            ]
-                          ]
-                        },
-                        "name": "account_id"
-                      }
-                    }
-                  ],
-                  [
-                    "label",
-                    "Text"
-                  ]
-                ]
-              },
-              "name": "agent_id"
-            }
-          }
-        }
-      ],
-      "nullable": [
-        false,
-        false
-      ],
-      "parameters": {
-        "Left": [
-          "Uuid",
-          "Int8",
-          "Int8"
-        ]
-      }
-    },
-    "query": "\n            SELECT\n                id AS \"id: SessionId\",\n                agent_id AS \"agent_id: AgentId\"\n            FROM agent_session\n            WHERE\n                classroom_id = $1::uuid\n            LIMIT $2\n            OFFSET $3\n            "
   },
   "ac48c91d82b0c301ee231d3a9e0d7adeff8367d1a6c92672307fa931780eb849": {
     "describe": {

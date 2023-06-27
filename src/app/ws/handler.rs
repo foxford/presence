@@ -25,12 +25,13 @@ use axum::{
         Extension, WebSocketUpgrade,
     },
     response::IntoResponse,
+    Error,
 };
-use futures_util::{future::Either, stream::SplitSink, SinkExt, StreamExt};
+use futures_util::{stream::SplitSink, SinkExt, StreamExt};
 use serde::Serialize;
 use serde_json::json;
 use sqlx::types::time::OffsetDateTime;
-use std::sync::Arc;
+use std::{future::Future, sync::Arc};
 use svc_agent::AgentId;
 use svc_authn::{
     jose::ConfigMap, token::jws_compact::extract::decode_jws_compact_with_config, AccountId,
@@ -38,7 +39,11 @@ use svc_authn::{
 };
 use svc_error::extension::sentry;
 use svc_events::{AgentEventV1 as AgentEvent, EventV1 as Event};
-use tokio::time::{interval, timeout, MissedTickBehavior};
+use svc_nats_client::Message as NatsMessage;
+use tokio::{
+    sync::mpsc::Receiver,
+    time::{interval, MissedTickBehavior},
+};
 use tokio_stream::wrappers::ReceiverStream;
 use tracing::{error, info, warn};
 
@@ -56,100 +61,54 @@ pub async fn handler<S: State>(
 async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state: S) {
     let (mut sender, mut receiver) = socket.split();
 
-    // Close connection if there is no authn message for some time
-    let authn_timeout = timeout(
-        state.config().websocket.authentication_timeout,
-        receiver.next(),
-    )
-    .await;
-
-    // Authentication
-    let (session, mut nats_rx, mut close_rx) = match authn_timeout {
-        Ok(Some(result)) => match result {
-            Ok(msg) => match handle_authn_message(msg, authn, state.clone()).await {
-                Ok((m, session)) => {
-                    // To close old connections from the same agents
-                    let close_rx = match state.register_session(session.key().clone(), session.id())
-                    {
-                        Ok(rx) => rx,
-                        Err(e) => {
-                            error!(error = %e, "Failed to register session_key: {}", session.key());
-                            close_conn_with_msg(sender, Response::from(e)).await;
-                            return;
-                        }
-                    };
-
-                    let nats_rx = match state.nats_client() {
-                        Some(nats_client) => {
-                            // Send `agent.enter` to others only if the session is new and not replaced
-                            if let SessionKind::New = session.kind() {
-                                let event = AgentEvent::Entered {
-                                    agent_id: session.key().clone().agent_id,
-                                };
-                                let event = Event::from(event);
-
-                                if let Err(e) = nats_client
-                                    .publish_event(&session, event, ENTERED_OPERATION.into())
-                                    .await
-                                {
-                                    error!(error = %e, "Failed to send agent.enter notification");
-                                    close_conn_with_msg(
-                                        sender,
-                                        Response::from(
-                                            UnrecoverableSessionError::InternalServerError,
-                                        ),
-                                    )
-                                    .await;
-                                    return;
-                                }
-                            }
-
-                            match nats_client
-                                .subscribe(session.key().clone().classroom_id)
-                                .await
-                            {
-                                Ok(rx) => Either::Left(ReceiverStream::new(rx)),
-                                Err(e) => {
-                                    error!(error = ?e);
-                                    close_conn_with_msg(sender, Response::from(e)).await;
-                                    return;
-                                }
-                            }
-                        }
-                        None => Either::Right(tokio_stream::pending()),
-                    };
-
-                    info!("Successful authentication, session_key: {}", session.key());
-                    let _ = sender.send(Message::Text(m)).await;
-                    state.metrics().ws_connection_success().inc();
-
-                    (session, nats_rx, close_rx)
-                }
-                Err(e) => {
-                    error!(error = ?e, "Connection is closed (unsuccessful request)");
-                    state.metrics().ws_connection_error().inc();
-                    close_conn_with_msg(sender, Response::from(e)).await;
-                    return;
-                }
-            },
-            Err(e) => {
-                error!(error = %e, "An error occurred when receiving an authn message");
-                send_to_sentry(e.into());
-                return;
+    let result = authenticate_and_create_session(state.clone(), receiver.next(), authn).await;
+    let session = match result {
+        Ok(session) => session,
+        Err(error) => {
+            if error != UnrecoverableSessionError::AuthTimedOut {
+                error!(?error, "connection is closed (unsuccessful request)");
+                state.metrics().ws_connection_error().inc();
             }
-        },
-        Ok(None) | Err(_) => {
-            warn!("Connection is closed (authentication timeout exceeded)");
-            close_conn_with_msg(
-                sender,
-                Response::from(UnrecoverableSessionError::AuthTimedOut),
-            )
-            .await;
 
+            close_conn_with_msg(sender, Response::from(error)).await;
             return;
         }
     };
 
+    let result = register_and_subscribe_session(state.clone(), &session).await;
+    let (mut nats_rx, mut close_rx) = match result {
+        Ok(result) => result,
+        Err(err) => {
+            let error = anyhow!(
+                "an error occurred during the registration of the session, {}",
+                &err
+            );
+            error!(%error, %session);
+            send_to_sentry(error);
+
+            // Delete the agent session from the replica
+            // If this is not done, then the next time the agent is connected, it won't be created in DB
+            if let Err(error) = state.terminate_session(session.key().clone()).await {
+                error!(%error, %session, "failed to terminate session");
+                send_to_sentry(error);
+            }
+
+            // Delete the agent session from DB
+            if let Err(error) = history_manager::move_single_session(state, session.id()).await {
+                error!(%error, %session, "failed to move session to history");
+                send_to_sentry(error);
+            }
+
+            close_conn_with_msg(sender, Response::from(err)).await;
+            return;
+        }
+    };
+
+    info!(%session, "successful registration");
+    let success = serialize_to_json(&Response::ConnectSuccess);
+    let _ = sender.send(Message::Text(success)).await;
+
+    state.metrics().ws_connection_success().inc();
     state.metrics().ws_connection_total().inc();
 
     let mut ping_sent = false;
@@ -317,7 +276,6 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
             }
         }
     }
-    tracing::debug!("broke out of loop");
 
     state.metrics().ws_connection_total().dec();
 
@@ -327,28 +285,29 @@ async fn handle_socket<S: State>(socket: WebSocket, authn: Arc<ConfigMap>, state
         return;
     }
 
-    if let Some(nats_client) = state.nats_client() {
-        let event = AgentEvent::Left {
-            agent_id: session.key().clone().agent_id,
-        };
-        let event = Event::from(event);
+    let event = AgentEvent::Left {
+        agent_id: session.key().clone().agent_id,
+    };
+    let event = Event::from(event);
 
-        if let Err(e) = nats_client
-            .publish_event(&session, event, LEFT_OPERATION.into())
-            .await
-        {
-            error!(error = %e, "Failed to send agent.leave notification");
-            send_to_sentry(e);
-            return;
-        }
+    if let Err(e) = state
+        .nats_client()
+        .publish_event(&session, event, LEFT_OPERATION.into())
+        .await
+    {
+        error!(error = %e, "Failed to send agent.left notification");
+        send_to_sentry(e);
     }
 
+    // Delete the agent session from the replica
+    // If this is not done, then the next time the agent is connected,
+    // other agents won't receive the `agent.entered` message
     if let Err(e) = state.terminate_session(session.key().clone()).await {
         error!(error = %e, "Failed to terminate session_key: {}", session.key());
         send_to_sentry(e);
-        return;
     }
 
+    // Delete the agent session from DB
     if let Err(e) = history_manager::move_single_session(state, session.id()).await {
         error!(error = %e, "Failed to move session to history");
         send_to_sentry(e);
@@ -368,11 +327,69 @@ async fn close_conn_with_msg<T: Serialize>(mut sender: SplitSink<WebSocket, Mess
     sender.close().await.ok();
 }
 
+async fn authenticate_and_create_session<S, F>(
+    state: S,
+    future: F,
+    authn: Arc<ConfigMap>,
+) -> Result<Session, UnrecoverableSessionError>
+where
+    S: State,
+    F: Future<Output = Option<Result<Message, Error>>>,
+{
+    // Close connection if there is no authn message for 5 seconds
+    let authn_timeout =
+        tokio::time::timeout(state.config().websocket.authentication_timeout, future).await;
+
+    let message = authn_timeout
+        // Timeout elapsed
+        .map_err(|_| UnrecoverableSessionError::AuthTimedOut)?
+        // The authn message was not received
+        .ok_or(UnrecoverableSessionError::AuthTimedOut)?
+        .map_err(|error| {
+            error!(%error, "an error occurred when receiving an authn message");
+            send_to_sentry(error.into());
+
+            UnrecoverableSessionError::InternalServerError
+        })?;
+
+    handle_authn_message(message, authn, state.clone()).await
+}
+
+async fn register_and_subscribe_session<S: State>(
+    state: S,
+    session: &Session,
+) -> Result<(ReceiverStream<NatsMessage>, Receiver<ConnectionCommand>)> {
+    // To close old connections from the same agents
+    let close_rx = state.register_session(session.key().clone(), session.id())?;
+
+    let nats_rx = state
+        .nats_client()
+        .subscribe(session.key().clone().classroom_id)
+        .await
+        .map(ReceiverStream::new)?;
+
+    // Send `agent.entered` to others only if the session is new and not replaced
+    if session.kind() == SessionKind::Replaced {
+        return Ok((nats_rx, close_rx));
+    }
+
+    let event = Event::from(AgentEvent::Entered {
+        agent_id: session.key().clone().agent_id,
+    });
+
+    state
+        .nats_client()
+        .publish_event(session, event, ENTERED_OPERATION.into())
+        .await?;
+
+    Ok((nats_rx, close_rx))
+}
+
 async fn handle_authn_message<S: State>(
     message: Message,
     authn: Arc<ConfigMap>,
     state: S,
-) -> Result<(String, Session), UnrecoverableSessionError> {
+) -> Result<Session, UnrecoverableSessionError> {
     let msg = match message {
         Message::Text(msg) => msg,
         _ => return Err(UnrecoverableSessionError::UnsupportedRequest),
@@ -393,13 +410,10 @@ async fn handle_authn_message<S: State>(
             authorize_agent(state.clone(), &agent_id, &classroom_id).await?;
 
             let (session_id, session_kind) =
-                create_agent_session(state, classroom_id, &agent_id).await?;
+                create_or_replace_agent_session(state, classroom_id, &agent_id).await?;
             let session_key = SessionKey::new(agent_id, classroom_id);
 
-            Ok((
-                serialize_to_json(&Response::ConnectSuccess),
-                Session::new(session_id, session_key, session_kind),
-            ))
+            Ok(Session::new(session_id, session_key, session_kind))
         }
         Err(e) => {
             error!(error = %e, "Failed to deserialize a message");
@@ -409,7 +423,7 @@ async fn handle_authn_message<S: State>(
     }
 }
 
-async fn create_agent_session<S: State>(
+async fn create_or_replace_agent_session<S: State>(
     state: S,
     classroom_id: ClassroomId,
     agent_id: &AgentId,
@@ -682,14 +696,10 @@ mod tests {
             );
             let state = TestState::new(db_pool, authz, replica_id);
 
-            let (resp, session) = handle_authn_message(msg, authn, state)
+            let session = handle_authn_message(msg, authn, state)
                 .await
                 .expect("Failed to handle authentication message");
 
-            let success = serde_json::to_string(&Response::ConnectSuccess)
-                .expect("Failed to serialize response");
-
-            assert_eq!(resp, success);
             assert_eq!(
                 session.key().clone(),
                 SessionKey::new(agent.agent_id().to_owned(), classroom_id)

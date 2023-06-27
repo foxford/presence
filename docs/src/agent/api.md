@@ -12,11 +12,11 @@ All routes expect json payloads.
 
 Request parameters:
 
-| Attribute    | Type | Optional | Description                        |
-|--------------|------|----------|------------------------------------|
-| classroom_id | uuid |          | Classroom ID.                      |
-| offset       | int  | +        | Pagination offset (Default: `0`).  |
-| limit        | int  | +        | Pagination limit (Default: `100`). |
+| Attribute    | Type | Optional | Description                                                               |
+|--------------|------|----------|---------------------------------------------------------------------------|
+| classroom_id | uuid |          | Classroom ID.                                                             |
+| sequence_id  | int  | +        | `sequence_id` of the last seen agent on the previous page (Default: `0`). |
+| limit        | int  | +        | Pagination limit (Default: `1000`).                                       |
 
 Response status: `200`
 
