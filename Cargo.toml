@@ -33,7 +33,7 @@ svc-events = "0.10"
 svc-nats-client = { version = "0.7" }
 svc-utils = { version = "0.8", features = ["log-middleware", "authn-extractor", "metrics-middleware", "cors-middleware"] }
 thiserror = "1.0"
-tokio = { version = "1.29", features = ["full"] }
+tokio = { version = "1.30", features = ["full"] }
 tokio-stream = { version = "0.1", features = ["sync"] }
 tracing = "0.1"
 tracing-appender = "0.2"
